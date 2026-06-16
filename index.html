@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <!-- SEO Meta Tags -->
+  <title>運行管理ドライバー希望休提出システム | 終日限定・日数無制限</title>
+  <meta name="description" content="ドライバーの希望休提出と運行管理者のシフト承認に特化した、シンプルで美しいスケジュール管理Webアプリケーションです。">
+  <meta name="author" content="Antigravity">
+  
+  <!-- CSS Stylesheet -->
+  <link rel="stylesheet" href="app.css">
+  
+  <!-- Supabase JS Library CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <!-- =================================================================
+       COMMON HEADER
+       ================================================================= -->
+  <header id="app-header" class="hidden">
+    <div class="logo" style="display:flex; align-items:center; gap:0.5rem">
+      <img src="logo.png" alt="株式会社enTeust" style="height: 32px; width: 32px; border-radius: 4px; object-fit: contain">
+      <span style="font-size:1.15rem; font-weight:600">株式会社enTeust <span class="text-gradient">希望休申請</span></span>
+    </div>
+    
+    <div class="nav-right">
+      <!-- 接続ステータス -->
+      <div class="connection-badge demo" id="connection-badge" title="接続設定を開く">
+        <div class="dot"></div>
+        <span>デモモード運転中</span>
+      </div>
+
+      <!-- ユーザー情報 -->
+      <div class="user-profile-menu">
+        <div class="user-avatar" id="user-avatar-initial">👤</div>
+        <div class="user-info-text">
+          <span class="user-name" id="user-name-display">ドライバー名</span>
+          <span class="user-role-badge" id="user-role-display">ドライバー</span>
+        </div>
+      </div>
+
+      <!-- 設定・ログアウト -->
+      <button class="btn-icon" id="settings-btn" title="接続・システム設定">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+      
+      <button class="btn-icon" id="logout-btn" title="ログアウト">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- =================================================================
+       MAIN CONTENT CONTAINER
+       ================================================================= -->
+  <main>
+    
+    <!-- 1. AUTHENTICATION SCREEN -->
+    <section id="auth-screen" class="auth-container">
+      
+      <!-- LOGIN CARD -->
+      <div class="glass-panel auth-card" id="login-card">
+        <div style="display: flex; align-items: center; justify-content: center; gap: 0.75rem; margin-bottom: 1.5rem;">
+          <img src="logo.png" alt="株式会社enTeust" style="height: 40px; width: 40px; border-radius: 6px; object-fit: contain">
+          <span style="font-size: 1.5rem; font-weight: 700; letter-spacing: 0.03em; color: var(--text-main);">株式会社enTeust</span>
+        </div>
+        <h1 class="auth-title" style="margin-bottom: 0.25rem;">希望休申請</h1>
+        <p class="auth-subtitle">申請期限毎月20日まで</p>
+        
+        <!-- ロール選択タブ -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-bottom:1.5rem">
+          <button type="button" class="btn" id="tab-driver">🚚 ドライバー</button>
+          <button type="button" class="btn btn-secondary" id="tab-admin">💼 管理者</button>
+        </div>
+
+        <form id="login-form">
+          <!-- ドライバー用入力 -->
+          <div id="login-driver-inputs">
+            <div class="form-group">
+              <label class="form-label" for="login-password">パスワード</label>
+              <input type="password" class="form-input" id="login-password" placeholder="••••••••">
+            </div>
+          </div>
+          
+          <!-- 管理者用入力 -->
+          <div id="login-admin-inputs" class="hidden">
+            <div class="form-group">
+              <label class="form-label" for="login-admin-password">管理者パスワード</label>
+              <input type="password" class="form-input" id="login-admin-password" placeholder="••••••••">
+            </div>
+          </div>
+
+          <button type="submit" class="btn" style="margin-top:1rem">
+            ログイン
+          </button>
+        </form>
+
+        <p class="auth-toggle">アカウントをお持ちでないですか？ <span id="to-signup">新規登録</span></p>
+
+
+      </div>
+
+      <!-- SIGNUP CARD -->
+      <div class="glass-panel auth-card hidden" id="signup-card">
+        <div style="display: flex; align-items: center; justify-content: center; gap: 0.75rem; margin-bottom: 1.5rem;">
+          <img src="logo.png" alt="株式会社enTeust" style="height: 40px; width: 40px; border-radius: 6px; object-fit: contain">
+          <span style="font-size: 1.5rem; font-weight: 700; letter-spacing: 0.03em; color: var(--text-main);">株式会社enTeust</span>
+        </div>
+        <h2 class="auth-title" style="margin-bottom: 0.25rem;">ドライバー新規登録</h2>
+        <p class="auth-subtitle">希望休システムに新しくドライバーを登録します</p>
+        
+        <form id="signup-form">
+          <div class="form-group">
+            <label class="form-label" for="signup-name">お名前</label>
+            <input type="text" class="form-input" id="signup-name" required placeholder="山田 太郎">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="signup-email">メールアドレス</label>
+            <input type="email" class="form-input" id="signup-email" required placeholder="driver@example.com">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="signup-password">パスワード</label>
+            <input type="password" class="form-input" id="signup-password" required minlength="4" placeholder="4文字以上">
+          </div>
+          <button type="submit" class="btn">
+            登録する
+          </button>
+        </form>
+
+        <p class="auth-toggle">すでに登録済みですか？ <span id="to-login">ログイン</span></p>
+      </div>
+
+    </section>
+
+    <!-- 2. DRIVER VIEW -->
+    <section id="driver-view" class="hidden">
+      <!-- 期限お知らせバナー (15日〜20日の間のみ自動表示) -->
+      <div id="deadline-banner" class="deadline-banner hidden">
+        <div class="banner-content">
+          <span class="banner-icon">⚠️</span>
+          <span class="banner-text">【提出期限のお知らせ】希望休の提出期限は<strong>毎月20日</strong>までです。お早めにご提出ください。</span>
+        </div>
+      </div>
+
+      <!-- スタッツ -->
+      <div class="stats-row">
+        <div class="stat-card all">
+          <span class="stat-label">今月の総申請</span>
+          <span class="stat-value" id="stat-total">0日</span>
+        </div>
+        <div class="stat-card approved">
+          <span class="stat-label">承認済み</span>
+          <span class="stat-value" id="stat-approved">0日</span>
+        </div>
+        <div class="stat-card pending">
+          <span class="stat-label">保留中</span>
+          <span class="stat-value" id="stat-pending">0日</span>
+        </div>
+      </div>
+
+      <div class="dashboard-grid">
+        <!-- カレンダーエリア -->
+        <div class="glass-panel calendar-wrapper">
+          <div class="panel-header">
+            <h2 class="panel-title">希望休選択カレンダー</h2>
+            <div class="calendar-ctrl">
+              <div class="ctrl-buttons">
+                <button class="btn-icon" id="prev-month-btn">◀</button>
+                <span class="month-title" id="driver-calendar-month">2026年 6月</span>
+                <button class="btn-icon" id="next-month-btn">▶</button>
+              </div>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="calendar-grid" id="driver-calendar-grid">
+              <!-- JSでカレンダー生成 -->
+            </div>
+          </div>
+        </div>
+
+        <!-- 選択リスト・送信パネル -->
+        <div class="glass-panel" style="display:flex; flex-direction:column">
+          <div class="panel-header">
+            <h2 class="panel-title">今回提出する希望休</h2>
+          </div>
+          <div class="panel-body" style="flex:1; display:flex; flex-direction:column; justify-content:space-between">
+            <div>
+              <p class="panel-intro">カレンダーで日付を複数選択し、内容を確認して送信してください。終日単位のみ、日数の上限はありません。</p>
+              <div class="requests-list" id="draft-requests-list">
+                <!-- 下書き希望休リストが動的に挿入される -->
+              </div>
+            </div>
+            
+            <button class="btn" id="submit-requests-btn" disabled>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+              希望休をまとめて送信する
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. ADMIN VIEW -->
+    <section id="admin-view" class="hidden">
+      <!-- 凡例/説明 -->
+      <div class="admin-legend">
+        <div class="legend-item">
+          <div class="legend-color" style="background:var(--pending-bg); border:1px solid var(--pending)"></div>
+          <span>保留中 (黄色)</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background:var(--approved-bg); border:1px solid var(--approved)"></div>
+          <span>承認済み (緑色)</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background:var(--rejected-bg); border:1px solid var(--rejected)"></div>
+          <span>却下 (赤色/打ち消し線)</span>
+        </div>
+        <div class="legend-item">
+          <span>⚠️ 複数名の申請が重複、または全体の33%以上が希望休の場合に警告 (🔴) が出ます</span>
+        </div>
+      </div>
+
+      <div class="dashboard-grid">
+        <!-- 管理者全体カレンダー -->
+        <div class="glass-panel calendar-wrapper">
+          <div class="panel-header">
+            <h2 class="panel-title">希望休状況管理カレンダー</h2>
+            <div class="calendar-ctrl">
+              <div class="ctrl-buttons">
+                <button class="btn-icon" id="admin-prev-month-btn">◀</button>
+                <span class="month-title" id="admin-calendar-month">2026年 6月</span>
+                <button class="btn-icon" id="admin-next-month-btn">▶</button>
+              </div>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="calendar-grid" id="admin-calendar-grid">
+              <!-- JSで管理者全体カレンダー生成 -->
+            </div>
+          </div>
+        </div>
+
+        <!-- 承認待ち・ドライバー稼働 roster -->
+        <div style="display:flex; flex-direction:column; gap:1.5rem">
+          <!-- 承認待ち申請リスト -->
+          <div class="glass-panel" style="flex:1">
+            <div class="panel-header">
+              <h2 class="panel-title">承認待ちの希望休</h2>
+            </div>
+            <div class="panel-body">
+              <div class="queue-container" id="approval-queue-list">
+                <!-- 承認待ちリストが動的に挿入される -->
+              </div>
+            </div>
+          </div>
+
+          <!-- 登録ドライバー一覧 -->
+          <div class="glass-panel" style="max-height: 250px; overflow: hidden; display: flex; flex-direction: column">
+            <div class="panel-header">
+              <h2 class="panel-title">登録ドライバー名とメールアドレス</h2>
+            </div>
+            <div class="panel-body" style="overflow-y: auto; flex:1">
+              <div class="roster-list" id="roster-list">
+                <!-- ドライバー一覧が動的に挿入される -->
+              </div>
+            </div>
+          </div>
+
+          <!-- 管理者パスワード変更 -->
+          <div class="glass-panel">
+            <div class="panel-header">
+              <h2 class="panel-title">管理者パスワード変更</h2>
+            </div>
+            <div class="panel-body">
+              <form id="change-admin-password-form">
+                <div class="form-group">
+                  <label class="form-label" for="admin-current-password">現在のパスワード</label>
+                  <input type="password" class="form-input" id="admin-current-password" required minlength="4" placeholder="現在のパスワード" style="padding: 0.5rem 0.75rem; font-size: 0.85rem">
+                </div>
+                <div class="form-group" style="margin-bottom: 1rem">
+                  <label class="form-label" for="admin-new-password">新しいパスワード</label>
+                  <input type="password" class="form-input" id="admin-new-password" required minlength="4" placeholder="新しいパスワード（4文字以上）" style="padding: 0.5rem 0.75rem; font-size: 0.85rem">
+                </div>
+                <button type="submit" class="btn" style="padding: 0.5rem; font-size: 0.85rem">パスワードを変更</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- =================================================================
+       MODALS & FLOATING DIALOGS
+       ================================================================= -->
+
+  <!-- 1. CONNECTION & SETTINGS MODAL -->
+  <div class="modal-overlay" id="settings-modal">
+    <div class="glass-panel modal-content">
+      <div class="panel-header">
+        <h3 class="panel-title">接続・システム設定</h3>
+        <button class="btn-icon" id="close-settings-btn" type="button">✖</button>
+      </div>
+      <div class="panel-body">
+        <form id="settings-form">
+          <div class="form-group">
+            <label class="form-label" for="db-mode-select">データ保管方法</label>
+            <select class="form-input form-select" id="db-mode-select">
+              <option value="demo">デモモード (ブラウザ内に保存、サーバー接続不要)</option>
+              <option value="live">Supabase 接続 (本番サーバー同期)</option>
+            </select>
+          </div>
+          
+          <div id="db-credentials-section" class="hidden">
+            <div class="form-group">
+              <label class="form-label" for="setting-url">Supabase URL</label>
+              <input type="url" class="form-input" id="setting-url" placeholder="https://xxxxxx.supabase.co">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="setting-key">Supabase Anon Key (APIキー)</label>
+              <input type="text" class="form-input" id="setting-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
+            </div>
+            
+            <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:1rem">
+              ※Supabaseダッシュボードの「Project Settings &gt; API」から確認できるURLとAnon Keyを入力してください。接続テストに成功すると自動で同期を開始します。
+            </p>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:0.5rem">
+            <button type="submit" class="btn">設定を保存して同期する</button>
+            <button type="button" class="btn btn-secondary hidden" id="switch-to-demo-btn">デモモードに戻る</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. EXISTING REQUEST DETAIL DIALOG -->
+  <div class="modal-overlay" id="detail-modal">
+    <div class="glass-panel modal-content" style="max-width:400px">
+      <div class="panel-header">
+        <h3 class="panel-title">希望休の詳細</h3>
+        <button class="btn-icon" id="close-detail-btn" type="button">✖</button>
+      </div>
+      <div class="panel-body">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem">
+          <h4 id="detail-date-label" style="font-size:1.1rem; font-weight:600"></h4>
+          <span class="badge" id="detail-status-badge">保留中</span>
+        </div>
+
+        <div style="margin-bottom:1.5rem" class="hidden">
+          <p class="form-label" style="font-size:0.75rem">管理者からの返答:</p>
+          <div id="detail-admin-comment"></div>
+        </div>
+
+        <button class="btn btn-secondary hidden" id="detail-cancel-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="margin-right:0.25rem"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+          この希望休申請を取り消す
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- FLOATING TOAST NOTIFICATIONS CONTAINER -->
+  <div id="toast-container"></div>
+
+  <!-- Main JavaScript App Controller -->
+  <script src="db.js"></script>
+  <script src="app.js"></script>
+
+</body>
+</html>
