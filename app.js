@@ -103,6 +103,9 @@ function showToast(message, type = 'success') {
 function showView(viewName) {
   state.view = viewName;
   
+  // 画面遷移時にスクロールロックを確実に解除する
+  document.body.style.overflow = '';
+  
   // 全画面を非表示に
   elements.authScreen.classList.add('hidden');
   elements.driverView.classList.add('hidden');
@@ -152,9 +155,13 @@ function updateHeaderUI() {
   if (state.user.role === 'admin') {
     elements.userRoleDisplay.textContent = '管理者';
     elements.userRoleDisplay.className = 'user-role-badge admin';
+    // 管理者のみ設定ボタンを表示する
+    elements.settingsBtn.classList.remove('hidden');
   } else {
     elements.userRoleDisplay.textContent = `ドライバー (${state.user.driver_license_type || '普通'}免許)`;
     elements.userRoleDisplay.className = 'user-role-badge';
+    // ドライバーの場合は設定ボタンを非表示にする
+    elements.settingsBtn.classList.add('hidden');
   }
 
   // 接続状態の表示
@@ -558,18 +565,53 @@ async function submitAllRequests() {
 
   try {
     let successCount = 0;
+    const submittedDetails = [];
     for (const [dateStr, info] of state.selectedDates.entries()) {
       await db.submitOffDayRequest(state.user.id, dateStr, info.reason);
+      submittedDetails.push({ date: dateStr, reason: info.reason || '（なし）' });
       successCount++;
     }
     showToast(`${successCount}件の希望休を送信しました！`);
     state.selectedDates.clear();
     await loadDriverDashboard();
+
+    // GAS自動メール通知が設定されている場合は、バックグラウンドでメール送信を実行
+    const gasUrl = localStorage.getItem('gas_notification_url');
+    if (gasUrl && submittedDetails.length > 0) {
+      sendGasEmailNotification(gasUrl, state.user, submittedDetails).catch(err => {
+        console.error("メール通知の送信に失敗しました:", err);
+      });
+    }
   } catch (err) {
     showToast("送信エラー: " + err.message, 'error');
   } finally {
     elements.submitRequestsBtn.innerHTML = originalText;
     elements.submitRequestsBtn.disabled = false;
+  }
+}
+
+// GAS通知用メール送信処理
+async function sendGasEmailNotification(gasUrl, user, submittedDetails) {
+  try {
+    const payload = {
+      driverName: user.name,
+      driverEmail: user.email || "不明",
+      requests: submittedDetails
+    };
+
+    // ブラウザのCORS制限（事前フライトリクエストエラー）を回避するため、
+    // プレーンテキスト（Simple Request形式）でPOST送信します。
+    await fetch(gasUrl, {
+      method: "POST",
+      mode: "no-cors", // これによりレスポンスの読込は遮断されますが、GASへのデータ到達は保証されます
+      headers: {
+        "Content-Type": "text/plain"
+      },
+      body: JSON.stringify(payload)
+    });
+    console.log("Notification request sent via GAS.");
+  } catch (error) {
+    console.error("Failed to send GAS notification:", error);
   }
 }
 
@@ -592,16 +634,19 @@ async function loadAdminDashboard() {
     // 1. 全ドライバープロフィールのロード
     state.drivers = await db.getAllDrivers(state.currentYear, state.currentMonth);
     
-    // 2. 全ドライバーの指定月希望休一覧の取得
+    // 2. 全ドライバーの指定月希望休一覧の取得 (カレンダー用)
     state.allRequests = await db.getOffDayRequests(null, state.currentYear, state.currentMonth);
     
-    // 3. 管理者運行管理カレンダーのレンダリング
+    // 3. 全期間のすべての希望休一覧の取得 (承認待ちリスト用、月制限なし)
+    state.allPendingRequests = await db.getOffDayRequests(null, null, null);
+    
+    // 4. 管理者運行管理カレンダーのレンダリング
     renderAdminCalendar();
     
-    // 4. 承認待ち申請リスト(キュー)の更新
+    // 5. 承認待ち申請リスト(キュー)の更新
     renderApprovalQueue();
 
-    // 5. ドライバー稼働率 roster の描画
+    // 6. ドライバー稼働率 roster の描画
     renderRosterList();
   } catch (err) {
     showToast("管理者データロード失敗: " + err.message, 'error');
@@ -630,7 +675,7 @@ function renderAdminCalendar() {
   // 1. 前月の余白を描画
   for (let i = startDayOfWeek - 1; i >= 0; i--) {
     const cell = document.createElement('div');
-    cell.className = 'admin-cell other-month';
+    cell.className = 'cell admin-cell other-month';
     cell.innerHTML = `<div class="admin-cell-header"><span class="admin-day-number">${prevMonthLastDay - i}</span></div>`;
     elements.adminCalendarGrid.appendChild(cell);
   }
@@ -638,34 +683,29 @@ function renderAdminCalendar() {
   // 2. 今月の日付を描画
   for (let day = 1; day <= lastDay; day++) {
     const cell = document.createElement('div');
-    cell.className = 'admin-cell';
+    cell.className = 'cell admin-cell';
     
     const dateStr = `${state.currentYear}-${String(state.currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     
     // その日にお休み希望を出している全ドライバーの申請を取得
     const dayReqs = state.allRequests.filter(r => r.request_date === dateStr);
     
-    // 承認・申請中のドライバー数をカウント (却下は除く)
-    const activeReqs = dayReqs.filter(r => r.status !== 'rejected');
-    const approvedCount = activeReqs.filter(r => r.status === 'approved').length;
-    
-    // 人員警告ルール: 登録ドライバー全体の33%以上が休む、または承認人数が2名以上の場合に警告
-    const totalDriversCount = state.drivers.length || 3; // ゼロ除算回避
-    const isUnderstaffed = activeReqs.length >= 2 || (activeReqs.length / totalDriversCount >= 0.33);
+    // 申請ステータスに応じて枠（ボーダー）の色を変えるクラスを追加
+    const pendingReqs = dayReqs.filter(r => r.status === 'pending');
+    const approvedReqs = dayReqs.filter(r => r.status === 'approved');
+    const rejectedReqs = dayReqs.filter(r => r.status === 'rejected');
 
-    let warningIconHtml = '';
-    if (isUnderstaffed && activeReqs.length > 0) {
-      warningIconHtml = `
-        <span class="warning-icon" title="人員不足アラート! 複数名が希望休を選択中">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
-        </span>
-      `;
+    if (pendingReqs.length > 0) {
+      cell.classList.add('status-pending');
+    } else if (approvedReqs.length > 0) {
+      cell.classList.add('status-approved');
+    } else if (rejectedReqs.length > 0 && dayReqs.length === rejectedReqs.length) {
+      cell.classList.add('status-rejected');
     }
-
+    
     cell.innerHTML = `
       <div class="admin-cell-header">
         <span class="admin-day-number">${day}</span>
-        ${warningIconHtml}
       </div>
       <div class="drivers-list-on-day"></div>
     `;
@@ -694,7 +734,8 @@ function renderAdminCalendar() {
 function renderApprovalQueue() {
   elements.approvalQueueList.innerHTML = '';
   
-  const pendingRequests = state.allRequests.filter(r => r.status === 'pending');
+  // 指定月のみでなく、すべての月で保留中（pending）の希望休申請を表示する
+  const pendingRequests = (state.allPendingRequests || []).filter(r => r.status === 'pending');
   
   if (pendingRequests.length === 0) {
     elements.approvalQueueList.innerHTML = `
@@ -885,6 +926,7 @@ function openSettingsModal() {
   // すでに保存されているURLとAnonキーがあれば挿入
   document.getElementById('setting-url').value = localStorage.getItem('supabase_url') || '';
   document.getElementById('setting-key').value = localStorage.getItem('supabase_anon_key') || '';
+  document.getElementById('setting-gas-url').value = localStorage.getItem('gas_notification_url') || '';
   
   // モードトグル
   elements.dbModeSelect.value = db.getMode();
@@ -907,9 +949,13 @@ async function saveSettings(e) {
   e.preventDefault();
   const mode = elements.dbModeSelect.value;
   
+  // GAS通知用URLの保存
+  const gasUrl = document.getElementById('setting-gas-url').value.trim();
+  localStorage.setItem('gas_notification_url', gasUrl);
+  
   if (mode === 'demo') {
     db.switchToDemo();
-    showToast('デモモードに変更しました。模擬データを使用します。');
+    showToast('設定を保存し、デモモードに変更しました。');
     closeModal(elements.settingsModal);
     handleLogout(); // ログアウトさせてサインイン画面に戻す
   } else {
