@@ -131,7 +131,7 @@ function showView(viewName) {
     }, 50);
     
     if (subtitleEl) {
-      subtitleEl.textContent = '申請期間：毎月1日〜24日まで';
+      subtitleEl.textContent = '申請期間：毎月1日〜20日まで';
     }
   } else {
     elements.appHeader.classList.remove('hidden');
@@ -373,8 +373,8 @@ function checkDeadlineBanner() {
   const today = new Date();
   const currentDay = today.getDate(); // 1-31
 
-  // 21日から24日の間のみ表示する
-  if (currentDay >= 21 && currentDay <= 24) {
+  // 15日から20日の間のみ表示する
+  if (currentDay >= 15 && currentDay <= 20) {
     banner.classList.remove('hidden');
   } else {
     banner.classList.add('hidden');
@@ -518,15 +518,15 @@ function updateDriverSidePanel() {
   
   const today = new Date();
   const currentDay = today.getDate();
-  const isSubmissionBlocked = currentDay >= 25; // 25日〜月末は送信不可
+  const isSubmissionBlocked = currentDay >= 21; // 21日〜月末は送信不可
   
   // 提出パネルの案内文（イントロ）を動的に書き換える
   const introEl = document.querySelector('.panel-intro');
   if (introEl) {
     if (isSubmissionBlocked) {
-      introEl.innerHTML = `<span style="color:var(--rejected); font-weight:600">⚠️ 現在（25日〜月末）は申請期間外のため送信できません。<br>(申請受付期間：毎月1日〜24日)</span>`;
+      introEl.innerHTML = `<span style="color:var(--rejected); font-weight:600">⚠️ 現在（21日〜月末）は申請期間外のため送信できません。<br>(申請受付期間：毎月1日〜20日)</span>`;
     } else {
-      introEl.innerHTML = `カレンダーで日付を複数選択し、内容を確認して送信してください。終日単位のみ、日数の上限はありません。<br><span style="color:var(--pending); font-weight:600">※今月の提出期限は24日までです。</span>`;
+      introEl.innerHTML = `カレンダーで日付を複数選択し、内容を確認して送信してください。終日単位のみ、日数の上限はありません。<br><span style="color:var(--pending); font-weight:600">※今月の提出期限は20日までです。</span>`;
     }
   }
 
@@ -540,10 +540,10 @@ function updateDriverSidePanel() {
     return;
   }
 
-  // 25日以降なら送信ボタンを無効化
+  // 21日以降なら送信ボタンを無効化
   if (isSubmissionBlocked) {
     elements.submitRequestsBtn.disabled = true;
-    elements.submitRequestsBtn.title = "毎月25日〜月末は申請期間外のため、送信できません。";
+    elements.submitRequestsBtn.title = "毎月21日〜月末は申請期間外のため、送信できません。";
   } else {
     elements.submitRequestsBtn.disabled = false;
     elements.submitRequestsBtn.title = "";
@@ -580,10 +580,10 @@ function updateDriverSidePanel() {
 async function submitAllRequests() {
   if (state.selectedDates.size === 0) return;
   
-  // 25日以降の送信制限チェック
+  // 21日以降の送信制限チェック
   const today = new Date();
-  if (today.getDate() >= 25) {
-    showToast("申請期間外（毎月25日〜月末）のため、希望休を送信できません。", "error");
+  if (today.getDate() >= 21) {
+    showToast("申請期間外（毎月21日〜月末）のため、希望休を送信できません。", "error");
     return;
   }
   
