@@ -1150,31 +1150,7 @@ async function initApp() {
 
 
 
-  // 管理者パスワード変更フォームのバインド
-  const changeAdminPasswordForm = document.getElementById('change-admin-password-form');
-  if (changeAdminPasswordForm) {
-    changeAdminPasswordForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const currentPwd = document.getElementById('admin-current-password').value;
-      const newPwd = document.getElementById('admin-new-password').value;
 
-      const submitBtn = changeAdminPasswordForm.querySelector('button[type="submit"]');
-      const originalText = submitBtn.innerHTML;
-      submitBtn.disabled = true;
-      submitBtn.innerHTML = `<span class="spinner"></span> 変更中...`;
-
-      try {
-        await db.changeAdminPassword(state.user.id, currentPwd, newPwd);
-        showToast("パスワードを変更しました。次回より新しいパスワードをご使用ください。");
-        changeAdminPasswordForm.reset();
-      } catch (err) {
-        showToast("エラー: " + err.message, "error");
-      } finally {
-        submitBtn.innerHTML = originalText;
-        submitBtn.disabled = false;
-      }
-    });
-  }
 
   // 各種モーダル閉じるボタンのバインド
   elements.closeDetailBtn.addEventListener('click', () => closeModal(elements.detailModal));
