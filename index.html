@@ -132,6 +132,7 @@
             <label class="form-label" for="signup-email">メールアドレス</label>
             <input type="email" class="form-input" id="signup-email" required placeholder="driver@example.com">
           </div>
+          
           <div class="form-group">
             <label class="form-label" for="signup-password">パスワード</label>
             <input type="password" class="form-input" id="signup-password" required minlength="4" placeholder="4文字以上">
@@ -148,11 +149,27 @@
 
     <!-- 2. DRIVER VIEW -->
     <section id="driver-view" class="hidden">
-      <!-- 期限お知らせバナー (15日〜20日の間のみ自動表示) -->
-      <div id="deadline-banner" class="deadline-banner hidden">
+      <!-- ドライバー機能サブナビゲーション (タブ) -->
+      <div class="driver-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem;">
+        <button class="tab-btn active" id="tab-btn-driver-request" style="background: none; border: none; padding: 0.5rem 1rem; color: var(--text-main); font-weight: 600; cursor: pointer; border-radius: 4px; transition: all 0.2s;">希望休提出</button>
+        <button class="tab-btn" id="tab-btn-driver-shift" style="background: none; border: none; padding: 0.5rem 1rem; color: var(--text-muted); font-weight: 500; cursor: pointer; border-radius: 4px; transition: all 0.2s;">シフト表閲覧</button>
+      </div>
+
+      <!-- 1. 希望休提出・管理パネル -->
+      <div id="driver-request-pane">
+        <!-- 期限お知らせバナー (15日〜20日の間のみ自動表示) -->
+        <div id="deadline-banner" class="deadline-banner hidden">
         <div class="banner-content">
           <span class="banner-icon">⚠️</span>
           <span class="banner-text">【提出期限のお知らせ】希望休の提出期限は<strong>毎月20日</strong>までです。お早めにご提出ください。</span>
+        </div>
+      </div>
+
+      <!-- シフト状況お知らせバナー -->
+      <div id="shift-status-banner" class="shift-status-banner">
+        <div class="banner-content">
+          <span class="banner-icon">📅</span>
+          <span class="banner-text" id="shift-status-text">シフト状況：読込中...</span>
         </div>
       </div>
 
@@ -189,6 +206,15 @@
             <div class="calendar-grid" id="driver-calendar-grid">
               <!-- JSでカレンダー生成 -->
             </div>
+            <!-- カレンダー凡例 -->
+            <div class="driver-legend" style="display: flex; gap: 1rem; font-size: 0.75rem; justify-content: center; margin-top: 1rem; flex-wrap: wrap; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.05);">
+              <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width:12px; height:12px; background:rgba(0, 229, 255, 0.15); border:1px solid var(--accent-color); display:inline-block; border-radius: 2px;"></span> 選択中</span>
+              <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width:12px; height:12px; background:var(--pending-bg); border:1px solid var(--pending); display:inline-block; border-radius: 2px;"></span> 申請中</span>
+              <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width:12px; height:12px; background:var(--approved-bg); border:1px solid var(--approved); display:inline-block; border-radius: 2px;"></span> 承認済</span>
+              <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width:12px; height:12px; border-bottom:3px solid var(--approved); display:inline-block;"></span> 出勤</span>
+              <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width:12px; height:12px; border-bottom:3px solid var(--pending); display:inline-block;"></span> 希望休</span>
+              <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width:12px; height:12px; border-bottom:3px solid var(--text-muted); display:inline-block;"></span> 休日</span>
+            </div>
           </div>
         </div>
 
@@ -212,73 +238,232 @@
           </div>
         </div>
       </div>
+      </div>
+
+      <!-- 2. シフト表閲覧パネル (初期状態は非表示) -->
+      <div id="driver-shift-pane" class="hidden">
+        <div class="glass-panel" style="overflow: hidden; display: flex; flex-direction: column;">
+          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
+              <h2 class="panel-title" id="driver-shift-pane-title" style="margin-bottom: 0;">確定シフト表</h2>
+              <!-- シフト表用 月表示切り替えコントローラー -->
+              <div class="calendar-ctrl" style="margin-bottom: 0;">
+                <div class="ctrl-buttons">
+                  <button class="btn-icon" id="driver-shift-prev-month-btn">◀</button>
+                  <span class="month-title" id="driver-shift-calendar-month" style="font-size: 1.05rem; font-weight: 700;">2026年 6月</span>
+                  <button class="btn-icon" id="driver-shift-next-month-btn">▶</button>
+                </div>
+              </div>
+            </div>
+            <div style="display: flex; gap: 1rem; font-size: 0.8rem; flex-wrap: wrap;">
+              <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width:12px; height:12px; background:var(--approved-bg); border:1px solid var(--approved); display:inline-block; border-radius: 2px;"></span> 出勤</span>
+              <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width:12px; height:12px; background:var(--pending-bg); border:1px solid var(--pending); display:inline-block; border-radius: 2px;"></span> 希望休</span>
+            </div>
+          </div>
+          
+
+
+          <div class="panel-body" style="overflow-x: auto; padding: 0;">
+            <div id="driver-shift-grid-container" style="width: 100%;">
+              <!-- JSで動的にシフト表テーブルを生成 -->
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- 3. ADMIN VIEW -->
     <section id="admin-view" class="hidden">
-      <!-- 凡例/説明 -->
-      <div class="admin-legend">
-        <div class="legend-item">
-          <div class="legend-color" style="background:var(--pending-bg); border:1px solid var(--pending)"></div>
-          <span>保留中 (黄色)</span>
+      <!-- 管理者機能サブナビゲーション (タブ) -->
+      <div class="admin-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem;">
+        <button class="tab-btn active" id="tab-btn-approve" style="background: none; border: none; padding: 0.5rem 1rem; color: var(--text-main); font-weight: 600; cursor: pointer; border-radius: 4px; transition: all 0.2s;">希望休承認・管理</button>
+        <button class="tab-btn" id="tab-btn-shift" style="background: none; border: none; padding: 0.5rem 1rem; color: var(--text-muted); font-weight: 500; cursor: pointer; border-radius: 4px; transition: all 0.2s;">自動シフト作成・管理</button>
+      </div>
+
+      <!-- 1. 希望休承認・管理パネル -->
+      <div id="admin-approve-pane">
+        <!-- 凡例/説明 -->
+        <div class="admin-legend">
+          <div class="legend-item">
+            <div class="legend-color" style="background:var(--pending-bg); border:1px solid var(--pending)"></div>
+            <span>保留中 (黄色)</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color" style="background:var(--approved-bg); border:1px solid var(--approved)"></div>
+            <span>承認済み (緑色)</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color" style="background:var(--rejected-bg); border:1px solid var(--rejected)"></div>
+            <span>却下 (赤色/打ち消し線)</span>
+          </div>
         </div>
-        <div class="legend-item">
-          <div class="legend-color" style="background:var(--approved-bg); border:1px solid var(--approved)"></div>
-          <span>承認済み (緑色)</span>
-        </div>
-        <div class="legend-item">
-          <div class="legend-color" style="background:var(--rejected-bg); border:1px solid var(--rejected)"></div>
-          <span>却下 (赤色/打ち消し線)</span>
+
+        <div class="dashboard-grid">
+          <!-- 管理者全体カレンダー -->
+          <div class="glass-panel calendar-wrapper">
+            <div class="panel-header">
+              <h2 class="panel-title">希望休状況管理カレンダー</h2>
+              <div class="calendar-ctrl">
+                <div class="ctrl-buttons">
+                  <button class="btn-icon" id="admin-prev-month-btn">◀</button>
+                  <span class="month-title" id="admin-calendar-month">2026年 6月</span>
+                  <button class="btn-icon" id="admin-next-month-btn">▶</button>
+                </div>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="calendar-grid" id="admin-calendar-grid">
+                <!-- JSで管理者全体カレンダー生成 -->
+              </div>
+            </div>
+          </div>
+
+          <!-- 承認待ち・ドライバー稼働 roster -->
+          <div style="display:flex; flex-direction:column; gap:1.5rem">
+            <!-- 承認待ち申請リスト -->
+            <div class="glass-panel" style="flex:1">
+              <div class="panel-header">
+                <h2 class="panel-title">承認待ちの希望休</h2>
+              </div>
+              <div class="panel-body">
+                <div class="queue-container" id="approval-queue-list">
+                  <!-- 承認待ちリストが動的に挿入される -->
+                </div>
+              </div>
+            </div>
+
+            <!-- 登録ドライバー一覧 -->
+            <div class="glass-panel" style="max-height: 250px; overflow: hidden; display: flex; flex-direction: column">
+              <div class="panel-header">
+                <h2 class="panel-title">登録ドライバー名とメールアドレス</h2>
+              </div>
+              <div class="panel-body" style="overflow-y: auto; flex:1">
+                <div class="roster-list" id="roster-list">
+                  <!-- ドライバー一覧が動的に挿入される -->
+                </div>
+              </div>
+            </div>
+
+            <!-- センター・局一覧管理 -->
+            <div class="glass-panel" style="display: flex; flex-direction: column;">
+              <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <h2 class="panel-title" style="margin-bottom: 0;">所属センター・局の管理</h2>
+              </div>
+              <div class="panel-body" style="padding: 1rem;">
+                <form id="add-center-form" style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                  <input type="text" class="form-input" id="new-center-name" required placeholder="例: 鹿児島センター、国分局" style="margin-bottom: 0; flex: 1; height: 36px; font-size: 0.85rem;">
+                  <button type="submit" class="btn" style="width: auto; padding: 0 1rem; height: 36px; font-size: 0.85rem; background: var(--gradient-primary); border: none;">追加</button>
+                </form>
+                <div id="centers-management-list" style="display: flex; flex-wrap: wrap; gap: 0.5rem; max-height: 120px; overflow-y: auto;">
+                  <!-- 動的にセンターバッジを描画 -->
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div class="dashboard-grid">
-        <!-- 管理者全体カレンダー -->
-        <div class="glass-panel calendar-wrapper">
+      <!-- 2. 自動シフト作成・管理パネル (初期状態は非表示) -->
+      <div id="admin-shift-pane" class="hidden">
+        <!-- 自動作成設定パネル -->
+        <div class="shift-control-panel glass-panel">
           <div class="panel-header">
-            <h2 class="panel-title">希望休状況管理カレンダー</h2>
-            <div class="calendar-ctrl">
-              <div class="ctrl-buttons">
-                <button class="btn-icon" id="admin-prev-month-btn">◀</button>
-                <span class="month-title" id="admin-calendar-month">2026年 6月</span>
-                <button class="btn-icon" id="admin-next-month-btn">▶</button>
-              </div>
-            </div>
+            <h2 class="panel-title">自動シフト生成設定</h2>
           </div>
           <div class="panel-body">
-            <div class="calendar-grid" id="admin-calendar-grid">
-              <!-- JSで管理者全体カレンダー生成 -->
+            <form id="shift-config-form" style="display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-end;">
+              <div class="form-group" style="margin-bottom: 0; min-width: 130px;">
+                <label class="form-label" for="config-required-drivers" style="font-size: 0.8rem;">1日の必要出勤人数</label>
+                <input type="number" class="form-input" id="config-required-drivers" value="2" min="1" max="10">
+              </div>
+              <div class="form-group" style="margin-bottom: 0; min-width: 130px;">
+                <label class="form-label" for="config-max-consecutive" style="font-size: 0.8rem;">最大連続勤務日数</label>
+                <input type="number" class="form-input" id="config-max-consecutive" value="5" min="1" max="10">
+              </div>
+               
+              <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <button type="button" class="btn btn-secondary" id="btn-save-draft">
+                  💾 下書き保存
+                </button>
+                <button type="button" class="btn" id="btn-publish-shift" style="background: var(--approved); border: none; color: #fff;">
+                  📢 確定して公開
+                </button>
+                <button type="button" class="btn btn-secondary" id="btn-export-csv">
+                  📤 CSV出力
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- シフト表示区分の管理 -->
+        <div class="glass-panel" style="margin-top: 1.5rem; display: flex; flex-direction: column;">
+          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <h2 class="panel-title" style="margin-bottom: 0;">シフト区分の管理</h2>
+          </div>
+          <div class="panel-body" style="padding: 1.25rem;">
+            <form id="add-shift-type-form" style="display: flex; gap: 0.75rem; margin-bottom: 1.25rem; flex-wrap: wrap; align-items: flex-end;">
+              <div class="form-group" style="margin-bottom: 0; min-width: 150px; flex: 1;">
+                <label class="form-label" for="new-shift-type-name" style="font-size: 0.8rem; margin-bottom: 0.25rem;">表示記号/名前</label>
+                <input type="text" class="form-input" id="new-shift-type-name" required placeholder="例: 有給、半休" style="margin-bottom: 0; height: 36px; font-size: 0.85rem;">
+              </div>
+              <div class="form-group" style="margin-bottom: 0; min-width: 180px;">
+                <label class="form-label" for="new-shift-type-is-work" style="font-size: 0.8rem; margin-bottom: 0.25rem;">出勤扱いとするか</label>
+                <select class="form-input form-select" id="new-shift-type-is-work" style="margin-bottom: 0; height: 36px; font-size: 0.85rem; padding: 0.3rem 2rem 0.3rem 0.75rem;">
+                  <option value="false">休日扱い (出勤数にカウントしない)</option>
+                  <option value="true">出勤扱い (出勤数にカウントする)</option>
+                </select>
+              </div>
+              <button type="submit" class="btn" style="width: auto; padding: 0 1.25rem; height: 36px; font-size: 0.85rem; background: var(--gradient-primary); border: none; margin: 0;">区分を追加</button>
+            </form>
+            <div id="shift-types-management-list" style="display: flex; flex-wrap: wrap; gap: 0.5rem; max-height: 120px; overflow-y: auto;">
+              <!-- 動的にシフト区分バッジを描画 -->
             </div>
           </div>
         </div>
 
-        <!-- 承認待ち・ドライバー稼働 roster -->
-        <div style="display:flex; flex-direction:column; gap:1.5rem">
-          <!-- 承認待ち申請リスト -->
-          <div class="glass-panel" style="flex:1">
-            <div class="panel-header">
-              <h2 class="panel-title">承認待ちの希望休</h2>
-            </div>
-            <div class="panel-body">
-              <div class="queue-container" id="approval-queue-list">
-                <!-- 承認待ちリストが動的に挿入される -->
+        <!-- シフト表グリッド -->
+        <div class="glass-panel" style="margin-top: 1.5rem; overflow: hidden; display: flex; flex-direction: column;">
+          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
+              <h2 class="panel-title" style="margin-bottom: 0;">シフト表 (セルをクリックで出勤/希望休を切替)</h2>
+              <!-- シフト表用 月表示切り替えコントローラー -->
+              <div class="calendar-ctrl" style="margin-bottom: 0;">
+                <div class="ctrl-buttons">
+                  <button class="btn-icon" id="shift-prev-month-btn">◀</button>
+                  <span class="month-title" id="shift-calendar-month" style="font-size: 1.05rem; font-weight: 700;">2026年 6月</span>
+                  <button class="btn-icon" id="shift-next-month-btn">▶</button>
+                </div>
+              </div>
+              <!-- シフト編集コントロール -->
+              <div style="display: flex; gap: 0.5rem; align-items: center; margin-left: 0.5rem;">
+                <button type="button" class="btn" id="btn-edit-shift" style="padding: 2px 12px; font-size: 0.8rem; height: 28px; width: auto; background: var(--gradient-primary); border: none; margin: 0;">✏️ シフト編集</button>
+                <button type="button" class="btn hidden" id="btn-confirm-shift" style="padding: 2px 12px; font-size: 0.8rem; height: 28px; width: auto; background: var(--approved); border: none; color: #fff; margin: 0;">💾 変更確定</button>
+                <button type="button" class="btn btn-secondary hidden" id="btn-cancel-edit-shift" style="padding: 2px 12px; font-size: 0.8rem; height: 28px; width: auto; margin: 0;">キャンセル</button>
               </div>
             </div>
-          </div>
-
-          <!-- 登録ドライバー一覧 -->
-          <div class="glass-panel" style="max-height: 250px; overflow: hidden; display: flex; flex-direction: column">
-            <div class="panel-header">
-              <h2 class="panel-title">登録ドライバー名とメールアドレス</h2>
-            </div>
-            <div class="panel-body" style="overflow-y: auto; flex:1">
-              <div class="roster-list" id="roster-list">
-                <!-- ドライバー一覧が動的に挿入される -->
-              </div>
+            <div style="display: flex; gap: 1rem; font-size: 0.8rem; flex-wrap: wrap;">
+              <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width:12px; height:12px; background:var(--approved-bg); border:1px solid var(--approved); display:inline-block; border-radius: 2px;"></span> 出勤 (W)</span>
+              <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width:12px; height:12px; background:var(--pending-bg); border:1px solid var(--pending); display:inline-block; border-radius: 2px;"></span> 希望休 (H)</span>
             </div>
           </div>
+          
+          <!-- 所属フィルターバー -->
+          <div class="filter-bar" style="padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; background: rgba(255,255,255,0.01);">
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <label class="form-label" for="filter-center-station" style="margin-bottom: 0; font-size: 0.85rem;">所属フィルター:</label>
+              <select class="form-input form-select" id="filter-center-station" style="width: auto; padding: 0.3rem 2rem 0.3rem 0.75rem; font-size: 0.85rem; height: 32px; margin-bottom: 0; min-width: 200px;">
+                <option value="all">すべてのセンター・局</option>
+              </select>
+            </div>
 
+          </div>
 
+          <div class="panel-body" style="overflow-x: auto; padding: 0;">
+            <div id="shift-grid-container" style="width: 100%;">
+              <!-- JSで動的にシフト表テーブルを生成 -->
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -326,6 +511,14 @@
             <input type="url" class="form-input" id="setting-gas-url" placeholder="https://script.google.com/macros/s/.../exec">
             <p style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem">
               ※Google Apps Scriptで作成したウェブアプリのURLを入力すると、希望休提出時に自動でメール通知が送信されます。
+            </p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="setting-spreadsheet-url">シフト出力先スプレッドシート URL</label>
+            <input type="url" class="form-input" id="setting-spreadsheet-url" placeholder="https://docs.google.com/spreadsheets/d/1BZl3Gao_gRLGy_qzUYbSyjrUPPDvY7M683OR17-yA5o/edit">
+            <p style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem">
+              ※ここにGoogleスプレッドシートのURLを設定し、GASを連携させると、「CSV出力」時に自動でスプレッドシートが更新されます。
             </p>
           </div>
 

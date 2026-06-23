@@ -12,6 +12,13 @@ let state = {
   monthlyRequests: [], // 取得した当月の申請リスト
   drivers: [], // 管理者用: ドライバーリスト
   allRequests: [], // 管理者用: 全員の申請リスト
+  shifts: [], // 当月の確定/下書きシフトデータ
+  shiftPublishStatus: 'draft', // 当月の公開ステータス 'draft' | 'published'
+  filterCenterStation: 'all', // 管理者画面用: 所属フィルター値
+  centers: [], // 管理者画面用: 所属センター・局マスタ一覧
+  isShiftEditing: false, // シフト編集モード中か
+  originalShifts: [], // 編集開始前のシフトデータのバックアップ
+  shiftTypes: [], // シフト表示区分マスタ一覧
 };
 
 // =================================================================
@@ -49,6 +56,17 @@ const elements = {
   statTotal: document.getElementById('stat-total'),
   statApproved: document.getElementById('stat-approved'),
   statPending: document.getElementById('stat-pending'),
+  shiftStatusBanner: document.getElementById('shift-status-banner'),
+  shiftStatusText: document.getElementById('shift-status-text'),
+  tabBtnDriverRequest: document.getElementById('tab-btn-driver-request'),
+  tabBtnDriverShift: document.getElementById('tab-btn-driver-shift'),
+  driverRequestPane: document.getElementById('driver-request-pane'),
+  driverShiftPane: document.getElementById('driver-shift-pane'),
+  driverShiftPrevMonthBtn: document.getElementById('driver-shift-prev-month-btn'),
+  driverShiftCalendarMonth: document.getElementById('driver-shift-calendar-month'),
+  driverShiftNextMonthBtn: document.getElementById('driver-shift-next-month-btn'),
+
+  driverShiftGridContainer: document.getElementById('driver-shift-grid-container'),
 
   // 管理者画面要素
   adminCalendarMonth: document.getElementById('admin-calendar-month'),
@@ -57,6 +75,19 @@ const elements = {
   adminCalendarGrid: document.getElementById('admin-calendar-grid'),
   approvalQueueList: document.getElementById('approval-queue-list'),
   rosterList: document.getElementById('roster-list'),
+
+  // 管理者サブタブとパネル要素
+  tabBtnApprove: document.getElementById('tab-btn-approve'),
+  tabBtnShift: document.getElementById('tab-btn-shift'),
+  adminApprovePane: document.getElementById('admin-approve-pane'),
+  adminShiftPane: document.getElementById('admin-shift-pane'),
+  btnSaveDraft: document.getElementById('btn-save-draft'),
+  btnPublishShift: document.getElementById('btn-publish-shift'),
+  btnExportCsv: document.getElementById('btn-export-csv'),
+  shiftGridContainer: document.getElementById('shift-grid-container'),
+  btnEditShift: document.getElementById('btn-edit-shift'),
+  btnConfirmShift: document.getElementById('btn-confirm-shift'),
+  btnCancelEditShift: document.getElementById('btn-cancel-edit-shift'),
 
   // モーダル関連
   settingsModal: document.getElementById('settings-modal'),
@@ -139,6 +170,17 @@ function showView(viewName) {
 
     if (viewName === 'driver') {
       elements.driverView.classList.remove('hidden');
+      
+      // タブの初期状態を希望休提出にリセット
+      if (elements.tabBtnDriverRequest && elements.tabBtnDriverShift) {
+        elements.tabBtnDriverRequest.classList.add('active');
+        elements.tabBtnDriverShift.classList.remove('active');
+        elements.tabBtnDriverRequest.style.color = 'var(--text-main)';
+        elements.tabBtnDriverShift.style.color = 'var(--text-muted)';
+        elements.driverRequestPane.classList.remove('hidden');
+        elements.driverShiftPane.classList.add('hidden');
+      }
+
       loadDriverDashboard();
     } else if (viewName === 'admin') {
       elements.adminView.classList.remove('hidden');
@@ -158,7 +200,8 @@ function updateHeaderUI() {
     // 管理者のみ設定ボタンを表示する
     elements.settingsBtn.classList.remove('hidden');
   } else {
-    elements.userRoleDisplay.textContent = `ドライバー (${state.user.driver_license_type || '普通'}免許)`;
+    const stationSuffix = state.user.center_station ? ` (${state.user.center_station})` : '';
+    elements.userRoleDisplay.textContent = `ドライバー${stationSuffix}`;
     elements.userRoleDisplay.className = 'user-role-badge';
     // ドライバーの場合は設定ボタンを非表示にする
     elements.settingsBtn.classList.add('hidden');
@@ -276,6 +319,7 @@ async function handleSignup(e) {
   const email = document.getElementById('signup-email').value.trim();
   const password = document.getElementById('signup-password').value;
   const name = document.getElementById('signup-name').value.trim();
+  const centerStation = null;
   const licenseType = null;
   const role = 'driver';
 
@@ -288,7 +332,7 @@ async function handleSignup(e) {
       return;
     }
 
-    const user = await db.signUp(email, password, name, role, licenseType);
+    const user = await db.signUp(email, password, name, role, licenseType, centerStation);
     localStorage.setItem('last_login_email', email);
     localStorage.setItem('last_login_name', name);
     showToast('登録が完了しました。');
@@ -352,16 +396,58 @@ async function loadDriverDashboard() {
     // 1. 指定月の申請をDBから取得
     state.monthlyRequests = await db.getOffDayRequests(state.user.id, state.currentYear, state.currentMonth);
     
-    // 2. カレンダーをレンダリング
+    // 2. 当月のシフトデータおよび公開ステータスをDBから取得
+    state.shifts = await db.getShifts(state.currentYear, state.currentMonth);
+    state.shiftPublishStatus = await db.getShiftPublishStatus(state.currentYear, state.currentMonth);
+    
+    // 2.5. 全ドライバーと所属マスタの取得 (シフト表閲覧用)
+    state.drivers = await db.getAllDrivers(state.currentYear, state.currentMonth);
+    
+    // ログイン中のドライバーの所属情報を最新データに同期
+    const myProfile = state.drivers.find(d => d.id === state.user.id);
+    if (myProfile) {
+      state.user.center_station = myProfile.center_station;
+      // セッション情報を更新
+      if (db.getMode() === 'demo') {
+        localStorage.setItem('driver_demo_session', JSON.stringify(state.user));
+      }
+      updateHeaderUI();
+    }
+
+    state.centers = await db.getCenters();
+    state.shiftTypes = await db.getShiftTypes();
+
+    // 3. シフト公開ステータスバナーを更新
+    updateShiftStatusBanner();
+
+
+
+    // 4. カレンダーをレンダリング
     renderDriverCalendar();
     
-    // 3. 申請履歴と作成中の下書きリストの同期
+    // 5. 申請履歴と作成中の下書きリストの同期
     updateDriverSidePanel();
     
-    // 4. スタッツの同期
+    // 6. スタッツの同期
     updateDriverStats();
+
+    // 6.5. 確定シフト表のレンダリング
+    renderDriverShiftGrid();
   } catch (err) {
     showToast("データロード失敗: " + err.message, 'error');
+  }
+}
+
+// シフト状況バナーの更新表示
+function updateShiftStatusBanner() {
+  if (!elements.shiftStatusBanner || !elements.shiftStatusText) return;
+  
+  if (state.shiftPublishStatus === 'published') {
+    elements.shiftStatusBanner.classList.add('published');
+    elements.shiftStatusText.innerHTML = `<strong>${state.currentMonth}月シフトが確定公開されました！</strong> カレンダー上の出勤・公休予定をご確認ください。`;
+  } else {
+    elements.shiftStatusBanner.classList.remove('published');
+    elements.shiftStatusText.innerHTML = `<strong>${state.currentMonth}月シフトは調整中（未確定）です。</strong> 確定までしばらくお待ちください。`;
   }
 }
 
@@ -433,10 +519,28 @@ function renderDriverCalendar() {
     const req = state.monthlyRequests.find(r => r.request_date === dateStr);
     const draft = state.selectedDates.get(dateStr);
 
-    if (req) {
-      cell.classList.add(`status-${req.status}`);
-    } else if (draft) {
-      cell.classList.add('status-selected');
+    // シフトが公開されている場合は、確定した勤務/休日を表示
+    if (state.shiftPublishStatus === 'published') {
+      const dayShift = state.shifts.find(s => s.driver_id === state.user.id && s.shift_date === dateStr);
+      if (dayShift) {
+        if (dayShift.shift_type === 'work') {
+          cell.classList.add('shift-work');
+        } else if (dayShift.shift_type === 'hope_off') {
+          const isHopeOff = state.monthlyRequests.some(r => r.request_date === dateStr && r.status === 'approved');
+          if (isHopeOff) {
+            cell.classList.add('shift-hope-off');
+          } else {
+            cell.classList.add('shift-off');
+          }
+        }
+      }
+    } else {
+      // シフトが未公開の場合は、自分の申請状況のみ表示
+      if (req) {
+        cell.classList.add(`status-${req.status}`);
+      } else if (draft) {
+        cell.classList.add('status-selected');
+      }
     }
 
     // クリック時のイベント
@@ -453,6 +557,15 @@ function renderDriverCalendar() {
 
 // カレンダーセルがクリックされた際の処理
 function handleDateClick(dateStr, existingRequest, draftRequest) {
+  if (state.shiftPublishStatus === 'published') {
+    if (existingRequest) {
+      showDetailModal(existingRequest);
+    } else {
+      showToast("この月のシフトは既に確定・公開されているため、新規の希望休選択・変更はできません。", "warning");
+    }
+    return;
+  }
+
   if (existingRequest) {
     // すでに申請が存在する場合、詳細＆キャンセルモーダルを開く
     showDetailModal(existingRequest);
@@ -658,6 +771,7 @@ function updateDriverStats() {
 // 管理者画面制御ロジック (Admin Actions)
 // =================================================================
 async function loadAdminDashboard() {
+  state.isShiftEditing = false;
   try {
     // 1. 全ドライバープロフィールのロード
     state.drivers = await db.getAllDrivers(state.currentYear, state.currentMonth);
@@ -668,16 +782,519 @@ async function loadAdminDashboard() {
     // 3. 全期間のすべての希望休一覧の取得 (承認待ちリスト用、月制限なし)
     state.allPendingRequests = await db.getOffDayRequests(null, null, null);
     
-    // 4. 管理者運行管理カレンダーのレンダリング
+    // 4. 当月のシフトデータおよび公開ステータスを取得
+    state.shifts = await db.getShifts(state.currentYear, state.currentMonth);
+    state.shiftPublishStatus = await db.getShiftPublishStatus(state.currentYear, state.currentMonth);
+
+    // 4.5. センター・局名マスターのロード
+    state.centers = await db.getCenters();
+    state.shiftTypes = await db.getShiftTypes();
+
+    // 5. 管理者運行管理カレンダーのレンダリング
     renderAdminCalendar();
     
-    // 5. 承認待ち申請リスト(キュー)の更新
+    // 6. 承認待ち申請リスト(キュー)の更新
     renderApprovalQueue();
 
-    // 6. ドライバー稼働率 roster の描画
+    // 7. ドライバー稼働率 roster の描画
     renderRosterList();
+
+    // 7.5. センター・局名マスター管理の描画
+    renderCentersManagement();
+    renderShiftTypesManagement();
+
+    // 8. シフト表グリッドの描画
+    renderShiftGrid();
   } catch (err) {
     showToast("管理者データロード失敗: " + err.message, 'error');
+  }
+}
+
+// -----------------------------------------------------------------
+// シフト表グリッドの描画 (出勤 / 希望休)
+// -----------------------------------------------------------------
+function renderShiftGrid() {
+  if (!elements.shiftGridContainer) return;
+
+  // シフト表上部のカレンダー月表示を更新
+  const shiftCalendarMonth = document.getElementById('shift-calendar-month');
+  if (shiftCalendarMonth) {
+    shiftCalendarMonth.textContent = `${state.currentYear}年 ${state.currentMonth}月`;
+  }
+
+  // 所属フィルターの選択肢を動的に更新
+  const filterSelect = document.getElementById('filter-center-station');
+  if (filterSelect) {
+    const currentVal = state.filterCenterStation || 'all';
+    const centers = state.centers || [];
+    
+    filterSelect.innerHTML = `<option value="all">すべてのセンター・局</option>`;
+    centers.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      filterSelect.appendChild(opt);
+    });
+
+    if (centers.includes(currentVal)) {
+      filterSelect.value = currentVal;
+      state.filterCenterStation = currentVal;
+    } else {
+      filterSelect.value = 'all';
+      state.filterCenterStation = 'all';
+    }
+  }
+
+
+
+  // フィルターに合致するドライバーのみを抽出
+  const filteredDrivers = state.filterCenterStation === 'all'
+    ? state.drivers
+    : state.drivers.filter(d => {
+        if (!d.center_station) return false;
+        const stations = d.center_station.split(',').map(s => s.trim());
+        return stations.includes(state.filterCenterStation);
+      });
+
+  const lastDay = new Date(state.currentYear, state.currentMonth, 0).getDate();
+  
+  let html = `<div class="shift-table-wrapper"><table class="shift-table${state.isShiftEditing ? ' editing' : ''}"><thead><tr>`;
+  html += `<th class="driver-name-col">ドライバー名</th>`;
+  const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
+  for (let day = 1; day <= lastDay; day++) {
+    const date = new Date(state.currentYear, state.currentMonth - 1, day);
+    const dayOfWeek = date.getDay();
+    const dayOfWeekStr = dayNames[dayOfWeek];
+    
+    let colorStyle = "";
+    if (dayOfWeek === 0) { // 日曜日
+      colorStyle = "color: var(--rejected);";
+    } else if (dayOfWeek === 6) { // 土曜日
+      colorStyle = "color: var(--accent-color);";
+    }
+    
+    html += `<th>${day}<br><span style="font-size: 0.65rem; font-weight: normal; opacity: 0.85; ${colorStyle}">(${dayOfWeekStr})</span></th>`;
+  }
+  html += `<th class="shift-stat-col">出勤日数</th>`;
+  html += `</tr></thead><tbody>`;
+
+  // 各ドライバーの行を描画
+  filteredDrivers.forEach(drv => {
+    html += `<tr>`;
+    
+    let nameCellHtml = `<td class="driver-name-col">`;
+    nameCellHtml += `<div style="display: flex; flex-direction: column; gap: 2px; min-height: 38px; justify-content: center; padding: 4px 0;">`;
+    
+    if (state.filterCenterStation !== 'all') {
+      nameCellHtml += `
+        <div style="display: flex; align-items: center; width: 100%;">
+          <span style="font-weight: 600;">${drv.name}</span>
+          <span class="remove-from-center-btn" data-driver-id="${drv.id}" data-station="${state.filterCenterStation}" style="cursor: pointer; color: var(--rejected); font-weight: bold; font-size: 0.85rem; margin-left: auto; padding: 2px 6px; border-radius: 4px; transition: background 0.15s;" title="${state.filterCenterStation}から解除">✖</span>
+        </div>
+      `;
+    } else {
+      nameCellHtml += `<span style="font-weight: 600;">${drv.name}</span>`;
+    }
+    
+    nameCellHtml += `</div></td>`;
+    html += nameCellHtml;
+    
+    let workCount = 0;
+    for (let day = 1; day <= lastDay; day++) {
+      const dateStr = `${state.currentYear}-${String(state.currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      
+      // 承認済希望休があるかチェック
+      const req = state.allRequests.find(r => r.driver_id === drv.id && r.request_date === dateStr && r.status === 'approved');
+      const dayShift = state.shifts.find(s => s.driver_id === drv.id && s.shift_date === dateStr);
+      const shiftType = dayShift ? dayShift.shift_type : (req ? 'hope_off' : 'work');
+      const assignedCenter = dayShift ? dayShift.assigned_center : null;
+
+      const myStations = drv.center_station ? drv.center_station.split(',').map(s => s.trim()) : [];
+      const typeMatch = state.shiftTypes.find(t => t.id === shiftType);
+      const isWork = typeMatch ? typeMatch.is_work : (shiftType === 'work');
+
+      if (state.isShiftEditing) {
+        // 編集モードの場合はすべてのセルでドロップダウンを表示
+        let cellClass = "shift-cell editing-select";
+        if (isWork) {
+          cellClass += " work";
+          workCount++;
+        } else {
+          cellClass += " hope_off";
+        }
+        
+        const titleText = assignedCenter ? assignedCenter : (typeMatch ? typeMatch.name : '出勤');
+        
+        html += `<td class="${cellClass}" data-driver-id="${drv.id}" data-date="${dateStr}" title="${titleText}">`;
+        html += `<select class="shift-cell-select" data-driver-id="${drv.id}" data-date="${dateStr}">`;
+        
+        // カスタマイズされた区分を表示
+        state.shiftTypes.forEach(t => {
+          const isSelected = (shiftType === t.id && !assignedCenter);
+          html += `<option value="${t.id}" ${isSelected ? 'selected' : ''}>${t.name}</option>`;
+        });
+        
+        html += `</select></td>`;
+      } else {
+        // 通常の非編集モードの表示
+        if (isWork) {
+          const displayText = assignedCenter ? assignedCenter.substring(0, 2) : (typeMatch ? typeMatch.name : '○');
+          const titleText = assignedCenter ? assignedCenter : (typeMatch ? typeMatch.name : '出勤');
+          html += `<td class="shift-cell work" data-driver-id="${drv.id}" data-date="${dateStr}" title="${titleText}">${displayText}</td>`;
+          workCount++;
+        } else {
+          const displayText = typeMatch ? typeMatch.name : (req ? '希望' : '休');
+          html += `<td class="shift-cell hope_off" data-driver-id="${drv.id}" data-date="${dateStr}" title="${displayText}">${displayText}</td>`;
+        }
+      }
+    }
+
+    html += `<td class="shift-stat-col">${workCount}日</td>`;
+    html += `</tr>`;
+  });
+
+  // 特定のセンターが選択されている場合のみ、最下部に新規配置用の行を描画
+  if (state.filterCenterStation !== 'all') {
+    const unallocatedDrivers = state.drivers.filter(d => {
+      if (!d.center_station) return true;
+      const stations = d.center_station.split(',').map(s => s.trim());
+      return !stations.includes(state.filterCenterStation);
+    });
+    html += `<tr class="allocate-row" style="background: rgba(255,255,255,0.01);">`;
+    html += `<td class="driver-name-col">`;
+    html += `<select class="allocate-driver-select form-input form-select" style="width: 100%; padding: 2px 1.5rem 2px 6px; font-size: 0.75rem; height: 24px; margin: 0; background: transparent; border: 1px dashed var(--border-color); color: var(--text-muted); border-radius: 4px;">`;
+    html += `<option value="">➕ ドライバーを配置</option>`;
+    unallocatedDrivers.forEach(d => {
+      html += `<option value="${d.id}">${d.name} (${d.center_station || '未設定'})</option>`;
+    });
+    html += `</select></td>`;
+    for (let day = 1; day <= lastDay; day++) {
+      html += `<td style="background: rgba(255,255,255,0.01); border-top: 1px dashed var(--border-color); border-bottom: 1px dashed var(--border-color);"></td>`;
+    }
+    html += `<td></td>`; // 出勤日数カラム
+    html += `</tr>`;
+  }
+
+  // 日次出勤人数過不足行を描画
+  html += `<tr class="sufficiency-row">`;
+  html += `<td class="driver-name-col">稼働状況</td>`;
+  
+  const reqCount = parseInt(document.getElementById('config-required-drivers').value) || 2;
+
+  for (let day = 1; day <= lastDay; day++) {
+    const dateStr = `${state.currentYear}-${String(state.currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    
+    let scheduledCount = 0;
+    filteredDrivers.forEach(drv => {
+      const req = state.allRequests.find(r => r.driver_id === drv.id && r.request_date === dateStr && r.status === 'approved');
+      const dayShift = state.shifts.find(s => s.driver_id === drv.id && s.shift_date === dateStr);
+      const shiftType = dayShift ? dayShift.shift_type : (req ? 'hope_off' : 'work');
+      const typeMatch = state.shiftTypes.find(t => t.id === shiftType);
+      const isWork = typeMatch ? typeMatch.is_work : (shiftType === 'work');
+      if (isWork) scheduledCount++;
+    });
+
+    const isSufficient = scheduledCount >= reqCount;
+    const cellClass = isSufficient ? 'sufficient' : 'insufficient';
+    html += `<td class="${cellClass}" title="${isSufficient ? '基準達成' : '要員不足'}">${scheduledCount}/${reqCount}</td>`;
+  }
+
+  html += `<td></td></tr></tbody></table></div>`;
+  elements.shiftGridContainer.innerHTML = html;
+
+  // フィルター中センターからの所属解除ボタンイベント
+  elements.shiftGridContainer.querySelectorAll('.remove-from-center-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const driverId = btn.getAttribute('data-driver-id');
+      const station = btn.getAttribute('data-station');
+      const drv = state.drivers.find(d => d.id === driverId);
+      if (!drv) return;
+      
+      if (confirm(`本当にドライバー「${drv.name}」の所属から「${station}」を解除しますか？\n（※ドライバーアカウント自体は削除されません）`)) {
+        try {
+          let stations = drv.center_station ? drv.center_station.split(',').map(s => s.trim()) : [];
+          stations = stations.filter(s => s !== station);
+          const nextVal = stations.length > 0 ? stations.join(',') : null;
+          
+          await db.updateDriverCenterStation(driverId, nextVal);
+          showToast(`「${drv.name}」の所属から「${station}」を解除しました。`);
+          await loadAdminDashboard();
+        } catch (err) {
+          showToast("解除エラー: " + err.message, 'error');
+        }
+      }
+    });
+    // ホバーエフェクト
+    btn.addEventListener('mouseenter', () => {
+      btn.style.background = 'rgba(255, 23, 68, 0.15)';
+    });
+    btn.addEventListener('mouseleave', () => {
+      btn.style.background = 'transparent';
+    });
+  });
+
+
+  // セルクリックで手動シフト調整 (出勤 ⇔ 希望休)
+  elements.shiftGridContainer.querySelectorAll('.shift-cell').forEach(cell => {
+    cell.addEventListener('click', (e) => {
+      // ドロップダウンセルの場合はクリックトグルを無効化
+      if (e.target.tagName === 'SELECT' || cell.classList.contains('editing-select')) {
+        return;
+      }
+
+      if (!state.isShiftEditing) {
+        showToast("シフトを変更するには「シフト編集」ボタンを押してください。", "info");
+        return;
+      }
+      const driverId = cell.getAttribute('data-driver-id');
+      const dateStr = cell.getAttribute('data-date');
+
+      let dayShiftIdx = state.shifts.findIndex(s => s.driver_id === driverId && s.shift_date === dateStr);
+      
+      if (dayShiftIdx === -1) {
+        const req = state.allRequests.find(r => r.driver_id === driverId && r.request_date === dateStr && r.status === 'approved');
+        const defaultType = req ? 'hope_off' : 'work';
+        const nextType = (defaultType === 'work') ? 'hope_off' : 'work';
+        state.shifts.push({ driver_id: driverId, shift_date: dateStr, shift_type: nextType });
+      } else {
+        state.shifts[dayShiftIdx].shift_type = (state.shifts[dayShiftIdx].shift_type === 'work') ? 'hope_off' : 'work';
+      }
+
+      renderShiftGrid();
+    });
+  });
+
+  // セル内の所属先選択ドロップダウンの変更監視
+  elements.shiftGridContainer.querySelectorAll('.shift-cell-select').forEach(select => {
+    select.addEventListener('change', (e) => {
+      const driverId = select.getAttribute('data-driver-id');
+      const dateStr = select.getAttribute('data-date');
+      const value = select.value;
+
+      let dayShiftIdx = state.shifts.findIndex(s => s.driver_id === driverId && s.shift_date === dateStr);
+
+      const typeMatch = state.shiftTypes.find(t => t.id === value);
+
+      if (typeMatch) {
+        // 設定された区分（出・休・有給など）を選択した場合
+        if (dayShiftIdx === -1) {
+          state.shifts.push({ driver_id: driverId, shift_date: dateStr, shift_type: typeMatch.id, assigned_center: null });
+        } else {
+          state.shifts[dayShiftIdx].shift_type = typeMatch.id;
+          state.shifts[dayShiftIdx].assigned_center = null;
+        }
+      }
+
+      renderShiftGrid();
+    });
+  });
+
+  // シフト編集コントロールボタンの表示切り替え
+  if (elements.btnEditShift && elements.btnConfirmShift && elements.btnCancelEditShift) {
+    if (state.isShiftEditing) {
+      elements.btnEditShift.classList.add('hidden');
+      elements.btnConfirmShift.classList.remove('hidden');
+      elements.btnCancelEditShift.classList.remove('hidden');
+    } else {
+      elements.btnEditShift.classList.remove('hidden');
+      elements.btnConfirmShift.classList.add('hidden');
+      elements.btnCancelEditShift.classList.add('hidden');
+    }
+  }
+
+  // 編集モード中は他のボタン操作を無効化
+  const otherActionButtons = [
+    elements.btnSaveDraft,
+    elements.btnPublishShift,
+    elements.btnExportCsv
+  ];
+  otherActionButtons.forEach(btn => {
+    if (btn) {
+      btn.disabled = state.isShiftEditing;
+      btn.style.opacity = state.isShiftEditing ? '0.5' : '1';
+      btn.style.pointerEvents = state.isShiftEditing ? 'none' : 'auto';
+    }
+  });
+
+  // 新規配置用セレクトボックスのイベント紐付け
+  const allocateSelect = elements.shiftGridContainer.querySelector('.allocate-driver-select');
+  if (allocateSelect) {
+    allocateSelect.addEventListener('change', async () => {
+      const driverId = allocateSelect.value;
+      if (!driverId) return;
+      const drv = state.drivers.find(d => d.id === driverId);
+      if (!drv) return;
+      try {
+        let stations = drv.center_station ? drv.center_station.split(',').map(s => s.trim()) : [];
+        if (!stations.includes(state.filterCenterStation)) {
+          stations.push(state.filterCenterStation);
+        }
+        const nextVal = stations.join(',');
+        await db.updateDriverCenterStation(driverId, nextVal);
+        showToast(`「${drv.name}」を「${state.filterCenterStation}」に配置しました。`);
+        await loadAdminDashboard();
+      } catch (err) {
+        showToast("配置エラー: " + err.message, 'error');
+        await loadAdminDashboard();
+      }
+    });
+  }
+
+
+}
+
+
+
+// -----------------------------------------------------------------
+// シフトの下書き保存
+// -----------------------------------------------------------------
+async function saveShiftDraft() {
+  try {
+    await db.saveShifts(state.currentYear, state.currentMonth, state.shifts, 'draft');
+    state.shiftPublishStatus = 'draft';
+    showToast("シフトを下書きとして保存しました。");
+  } catch (err) {
+    if (err.code === 'DB_MIGRATION_REQUIRED') {
+      state.shiftPublishStatus = 'draft';
+      alert("【注意】シフトは下書き保存されましたが、データベースの更新（マイグレーション）が必要です。\n\n完全に動作させるには、SupabaseのSQL Editor等で以下のSQLを実行してください：\n\nALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS assigned_center TEXT;\nALTER TABLE public.shifts DROP CONSTRAINT IF EXISTS shifts_shift_type_check;\nCREATE TABLE IF NOT EXISTS public.shift_types (\n  id TEXT PRIMARY KEY,\n  name TEXT NOT NULL,\n  is_work BOOLEAN NOT NULL DEFAULT false,\n  color TEXT\n);");
+    } else {
+      showToast(err.message, 'error');
+    }
+  }
+}
+
+// -----------------------------------------------------------------
+// シフトの確定公開
+// -----------------------------------------------------------------
+async function publishShift() {
+  try {
+    await db.saveShifts(state.currentYear, state.currentMonth, state.shifts, 'published');
+    state.shiftPublishStatus = 'published';
+    showToast("シフトを確定公開しました！ドライバー画面に即時反映されます。");
+  } catch (err) {
+    if (err.code === 'DB_MIGRATION_REQUIRED') {
+      state.shiftPublishStatus = 'published';
+      alert("【注意】シフトは確定公開されましたが、データベースの更新（マイグレーション）が必要です。\n\n完全に動作させるには、SupabaseのSQL Editor等で以下のSQLを実行してください：\n\nALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS assigned_center TEXT;\nALTER TABLE public.shifts DROP CONSTRAINT IF EXISTS shifts_shift_type_check;\nCREATE TABLE IF NOT EXISTS public.shift_types (\n  id TEXT PRIMARY KEY,\n  name TEXT NOT NULL,\n  is_work BOOLEAN NOT NULL DEFAULT false,\n  color TEXT\n);");
+    } else {
+      showToast(err.message, 'error');
+    }
+  }
+}
+
+
+
+// -----------------------------------------------------------------
+// CSVファイルのエクスポート
+// -----------------------------------------------------------------
+function exportShiftCsv() {
+  const lastDay = new Date(state.currentYear, state.currentMonth, 0).getDate();
+  let csvContent = "\ufeff"; // Excelでの日本語文字化けを防ぐためのBOM追加
+  const gridData = [];
+  
+  // フィルターに合致するドライバーのみを抽出
+  const filteredDrivers = state.filterCenterStation === 'all'
+    ? state.drivers
+    : state.drivers.filter(d => {
+        const stations = d.center_station ? d.center_station.split(',').map(s => s.trim()) : [];
+        return stations.includes(state.filterCenterStation);
+      });
+
+  // ヘッダー行作成
+  const header = ["ドライバー名"];
+  for (let d = 1; d <= lastDay; d++) {
+    header.push(`${d}日`);
+  }
+  header.push("出勤日数");
+  csvContent += header.join(",") + "\n";
+  gridData.push(header);
+
+  // 各ドライバーのシフト行作成
+  filteredDrivers.forEach(drv => {
+    const row = [drv.name];
+    let workCount = 0;
+
+    for (let day = 1; day <= lastDay; day++) {
+      const dateStr = `${state.currentYear}-${String(state.currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const req = state.allRequests.find(r => r.driver_id === drv.id && r.request_date === dateStr && r.status === 'approved');
+      const dayShift = state.shifts.find(s => s.driver_id === drv.id && s.shift_date === dateStr);
+      const shiftType = dayShift ? dayShift.shift_type : (req ? 'hope_off' : 'work');
+
+      const typeMatch = state.shiftTypes.find(t => t.id === shiftType);
+      const isWork = typeMatch ? typeMatch.is_work : (shiftType === 'work');
+
+      if (isWork) {
+        const assignedCenter = dayShift ? dayShift.assigned_center : null;
+        row.push(assignedCenter ? assignedCenter : (typeMatch ? typeMatch.name : "出勤"));
+        workCount++;
+      } else {
+        row.push(typeMatch ? typeMatch.name : (req ? "希望休" : "休日"));
+      }
+    }
+    row.push(`${workCount}日`);
+    csvContent += row.join(",") + "\n";
+    gridData.push(row);
+  });
+
+  // 日次過不足情報の行作成
+  const suffRow = ["稼働状況"];
+  const reqCount = parseInt(document.getElementById('config-required-drivers').value) || 2;
+  for (let day = 1; day <= lastDay; day++) {
+    const dateStr = `${state.currentYear}-${String(state.currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    
+    let scheduled = 0;
+    filteredDrivers.forEach(drv => {
+      const req = state.allRequests.find(r => r.driver_id === drv.id && r.request_date === dateStr && r.status === 'approved');
+      const dayShift = state.shifts.find(s => s.driver_id === drv.id && s.shift_date === dateStr);
+      const shiftType = dayShift ? dayShift.shift_type : (req ? 'hope_off' : 'work');
+      const typeMatch = state.shiftTypes.find(t => t.id === shiftType);
+      const isWork = typeMatch ? typeMatch.is_work : (shiftType === 'work');
+      if (isWork) scheduled++;
+    });
+    
+    suffRow.push(`${scheduled}/${reqCount}`);
+  }
+  suffRow.push("");
+  csvContent += suffRow.join(",") + "\n";
+  gridData.push(suffRow);
+
+  // ブラウザによるダウンロード実行
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", `shift_${state.currentYear}_${state.currentMonth}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  showToast("CSVファイルを出力しました。");
+
+  // GAS Web Appと連携してGoogleスプレッドシートを同期
+  const gasUrl = localStorage.getItem('gas_notification_url');
+  if (gasUrl) {
+    const spreadsheetUrl = localStorage.getItem('spreadsheet_url') || 'https://docs.google.com/spreadsheets/d/1BZl3Gao_gRLGy_qzUYbSyjrUPPDvY7M683OR17-yA5o/edit';
+    const match = spreadsheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    const spreadsheetId = match ? match[1] : "1BZl3Gao_gRLGy_qzUYbSyjrUPPDvY7M683OR17-yA5o";
+
+    fetch(gasUrl, {
+      method: "POST",
+      mode: "no-cors",
+      headers: {
+        "Content-Type": "text/plain"
+      },
+      body: JSON.stringify({
+        action: "exportShift",
+        year: state.currentYear,
+        month: state.currentMonth,
+        spreadsheetId: spreadsheetId,
+        gridData: gridData
+      })
+    }).then(() => {
+      showToast("Google スプレッドシートも自動更新しました！");
+    }).catch(err => {
+      console.error("Failed to sync spreadsheet:", err);
+      showToast("スプレッドシート同期に失敗しました: " + err.message, "error");
+    });
   }
 }
 
@@ -743,7 +1360,7 @@ function renderAdminCalendar() {
     dayReqs.forEach(req => {
       const badge = document.createElement('div');
       badge.className = `driver-mini-badge ${req.status}`;
-      badge.title = `${req.driver_name} (${req.driver_license_type || '普通'}): ${req.reason || '理由記入なし'}`;
+      badge.title = `${req.driver_name}: ${req.reason || '理由記入なし'}`;
       badge.textContent = req.driver_name;
       
       // クリックしたら管理者も詳細ダイアログから内容を確認＆更新できるようにする
@@ -781,7 +1398,6 @@ function renderApprovalQueue() {
       <div class="queue-header">
         <div class="driver-meta">
           <span class="driver-name-title">${req.driver_name}</span>
-          <span class="driver-license-sub">${req.driver_license_type || '普通'}免許</span>
         </div>
         <span class="queue-date">${formatDateJapanese(req.request_date)}</span>
       </div>
@@ -916,7 +1532,7 @@ function renderRosterList() {
       : '';
 
     item.innerHTML = `
-      <div style="display:flex; flex-direction:column; gap:2px">
+      <div style="display:flex; flex-direction:column; gap:2px; flex:1">
         <span class="roster-driver-name" style="font-weight:600">${drv.name}</span>
         <span class="roster-driver-email" style="font-size:0.75rem; color:var(--text-muted)">
           ${drv.email || 'メールアドレス未登録'}${drv.plain_password ? ` | パスワード: <span style="color:var(--pending); font-weight:600">${drv.plain_password}</span>` : ''}
@@ -947,14 +1563,143 @@ function renderRosterList() {
   });
 }
 
+// センター・局名マスターの描画
+function renderCentersManagement() {
+  const container = document.getElementById('centers-management-list');
+  if (!container) return;
+
+  container.innerHTML = '';
+
+  const centers = state.centers || [];
+
+  if (centers.length === 0) {
+    container.innerHTML = `<span style="font-size:0.75rem; color:var(--text-muted)">登録されたセンター・局はありません。</span>`;
+    return;
+  }
+
+  centers.forEach(c => {
+    const badge = document.createElement('div');
+    badge.className = 'driver-mini-badge';
+    badge.style.display = 'inline-flex';
+    badge.style.alignItems = 'center';
+    badge.style.gap = '6px';
+    badge.style.padding = '4px 10px';
+    badge.style.fontSize = '0.75rem';
+    badge.style.background = 'rgba(255, 255, 255, 0.05)';
+    badge.style.border = '1px solid var(--border-color)';
+    badge.style.borderRadius = '20px';
+    badge.style.color = 'var(--text-main)';
+
+    badge.innerHTML = `
+      <span>${c}</span>
+      <span class="delete-center-btn" style="cursor:pointer; color:var(--rejected); font-weight:bold" title="このセンター・局名を削除">✖</span>
+    `;
+
+    // 削除イベントの紐付け
+    badge.querySelector('.delete-center-btn').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (confirm(`本当に「${c}」を削除しますか？\n（※所属しているドライバーのデータはそのまま残りますが、選択肢から除外されます）`)) {
+        try {
+          await db.deleteCenter(c);
+          showToast(`「${c}」を削除しました。`);
+          await loadAdminDashboard();
+        } catch (err) {
+          showToast("削除エラー: " + err.message, 'error');
+        }
+      }
+    });
+
+    container.appendChild(badge);
+  });
+}
+
+// シフト表示区分の管理描画
+function renderShiftTypesManagement() {
+  const container = document.getElementById('shift-types-management-list');
+  if (!container) return;
+
+  container.innerHTML = '';
+
+  const types = state.shiftTypes || [];
+
+  if (types.length === 0) {
+    container.innerHTML = `<span style="font-size:0.75rem; color:var(--text-muted)">登録された区分はありません。</span>`;
+    return;
+  }
+
+  types.forEach(t => {
+    const badge = document.createElement('div');
+    badge.className = 'driver-mini-badge';
+    badge.style.display = 'inline-flex';
+    badge.style.alignItems = 'center';
+    badge.style.gap = '8px';
+    badge.style.padding = '4px 10px';
+    badge.style.fontSize = '0.75rem';
+    badge.style.background = 'rgba(255, 255, 255, 0.05)';
+    badge.style.border = '1px solid var(--border-color)';
+    badge.style.borderRadius = '20px';
+    badge.style.color = 'var(--text-main)';
+
+    const isSystemType = (t.id === 'work' || t.id === 'off' || t.id === 'hope_off');
+    
+    badge.innerHTML = `
+      <span><strong>${t.name}</strong> (${t.is_work ? '出勤' : '休日'})</span>
+      <span class="edit-shift-type-btn" style="cursor:pointer; color:var(--accent-color)" title="名前を変更">✏️</span>
+      ${isSystemType ? '' : '<span class="delete-shift-type-btn" style="cursor:pointer; color:var(--rejected); font-weight:bold" title="区分を削除">✖</span>'}
+    `;
+
+    // 編集（名前変更）イベント
+    badge.querySelector('.edit-shift-type-btn').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const newName = prompt(`「${t.name}」の新しい表示記号/名前を入力してください（全角・半角2文字以内を推奨します）：`, t.name);
+      if (newName === null) return;
+      
+      const cleanName = newName.trim();
+      if (!cleanName) {
+        showToast("名前を入力してください。", "warning");
+        return;
+      }
+
+      t.name = cleanName;
+      try {
+        await db.saveShiftTypes(state.shiftTypes);
+        showToast(`シフト区分名を「${cleanName}」に変更しました。`);
+        await loadAdminDashboard();
+      } catch (err) {
+        showToast("編集エラー: " + err.message, 'error');
+      }
+    });
+
+    // 削除イベント（システム既定以外のみ）
+    if (!isSystemType) {
+      badge.querySelector('.delete-shift-type-btn').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (confirm(`本当にシフト区分「${t.name}」を削除しますか？\n（※シフト表に配置されている該当区分は選択肢から除外されます）`)) {
+          state.shiftTypes = state.shiftTypes.filter(x => x.id !== t.id);
+          try {
+            await db.saveShiftTypes(state.shiftTypes);
+            showToast(`シフト区分「${t.name}」を削除しました。`);
+            await loadAdminDashboard();
+          } catch (err) {
+            showToast("削除エラー: " + err.message, 'error');
+          }
+        }
+      });
+    }
+
+    container.appendChild(badge);
+  });
+}
+
 // =================================================================
 // 設定モーダルの制御
 // =================================================================
 function openSettingsModal() {
-  // すでに保存されているURLとAnonキーがあれば挿入
-  document.getElementById('setting-url').value = localStorage.getItem('supabase_url') || '';
-  document.getElementById('setting-key').value = localStorage.getItem('supabase_anon_key') || '';
+  // すでに保存されているURLとAnonキーがあれば挿入、無ければデフォルトの値を挿入
+  document.getElementById('setting-url').value = localStorage.getItem('supabase_url') || 'https://byugsueqscfxobxrfuno.supabase.co';
+  document.getElementById('setting-key').value = localStorage.getItem('supabase_anon_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5dWdzdWVxc2NmeG9ieHJmdW5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTQ5ODAsImV4cCI6MjA5NzEzMDk4MH0.tLxM1wr5cAkpoz9_Va38a9fHXJTdUU5tVwHDp7s-3tU';
   document.getElementById('setting-gas-url').value = localStorage.getItem('gas_notification_url') || '';
+  document.getElementById('setting-spreadsheet-url').value = localStorage.getItem('spreadsheet_url') || 'https://docs.google.com/spreadsheets/d/1BZl3Gao_gRLGy_qzUYbSyjrUPPDvY7M683OR17-yA5o/edit';
   
   // モードトグル
   elements.dbModeSelect.value = db.getMode();
@@ -977,9 +1722,11 @@ async function saveSettings(e) {
   e.preventDefault();
   const mode = elements.dbModeSelect.value;
   
-  // GAS通知用URLの保存
+  // GAS通知用URLとスプレッドシートURLの保存
   const gasUrl = document.getElementById('setting-gas-url').value.trim();
   localStorage.setItem('gas_notification_url', gasUrl);
+  const spreadsheetUrl = document.getElementById('setting-spreadsheet-url').value.trim();
+  localStorage.setItem('spreadsheet_url', spreadsheetUrl);
   
   if (mode === 'demo') {
     db.switchToDemo();
@@ -1132,8 +1879,204 @@ async function initApp() {
     loadAdminDashboard();
   });
 
+  // シフト表の月変更 (管理者画面 - シフト管理)
+  const shiftPrevMonthBtn = document.getElementById('shift-prev-month-btn');
+  const shiftNextMonthBtn = document.getElementById('shift-next-month-btn');
+  if (shiftPrevMonthBtn) {
+    shiftPrevMonthBtn.addEventListener('click', () => {
+      state.currentMonth--;
+      if (state.currentMonth < 1) {
+        state.currentMonth = 12;
+        state.currentYear--;
+      }
+      loadAdminDashboard();
+    });
+  }
+  if (shiftNextMonthBtn) {
+    shiftNextMonthBtn.addEventListener('click', () => {
+      state.currentMonth++;
+      if (state.currentMonth > 12) {
+        state.currentMonth = 1;
+        state.currentYear++;
+      }
+      loadAdminDashboard();
+    });
+  }
+
+  // 所属フィルター変更イベント
+  const filterSelect = document.getElementById('filter-center-station');
+  if (filterSelect) {
+    filterSelect.addEventListener('change', (e) => {
+      state.filterCenterStation = e.target.value;
+      renderShiftGrid();
+    });
+  }
+
+  // センター追加フォームの送信イベント
+  const addCenterForm = document.getElementById('add-center-form');
+  if (addCenterForm) {
+    addCenterForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = document.getElementById('new-center-name');
+      const val = input ? input.value.trim() : '';
+      if (!val) return;
+      try {
+        await db.addCenter(val);
+        showToast(`「${val}」を追加しました。`);
+        if (input) input.value = '';
+        await loadAdminDashboard();
+      } catch (err) {
+        showToast("追加エラー: " + err.message, 'error');
+      }
+    });
+  }
+
+  // シフト区分追加フォームの送信イベント
+  const addShiftTypeForm = document.getElementById('add-shift-type-form');
+  if (addShiftTypeForm) {
+    addShiftTypeForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = document.getElementById('new-shift-type-name');
+      const selectIsWork = document.getElementById('new-shift-type-is-work');
+      
+      const name = input ? input.value.trim() : '';
+      const isWork = selectIsWork ? selectIsWork.value === 'true' : false;
+      
+      if (!name) return;
+      
+      // 同一名の重複チェック
+      if (state.shiftTypes.some(t => t.name === name)) {
+        showToast("同じ名前のシフト区分が既に存在します。", "warning");
+        return;
+      }
+      
+      const newId = 'st_' + Date.now();
+      const newType = { id: newId, name: name, is_work: isWork };
+      
+      state.shiftTypes.push(newType);
+      
+      try {
+        await db.saveShiftTypes(state.shiftTypes);
+        showToast(`シフト区分「${name}」を追加しました。`);
+        if (input) input.value = '';
+        await loadAdminDashboard();
+      } catch (err) {
+        showToast("追加エラー: " + err.message, 'error');
+      }
+    });
+  }
+
   // 申請一括送信
   elements.submitRequestsBtn.addEventListener('click', submitAllRequests);
+
+  // 管理者サブタブの切り替えイベント
+  if (elements.tabBtnApprove && elements.tabBtnShift) {
+    elements.tabBtnApprove.addEventListener('click', () => {
+      elements.tabBtnApprove.classList.add('active');
+      elements.tabBtnShift.classList.remove('active');
+      elements.tabBtnApprove.style.color = 'var(--text-main)';
+      elements.tabBtnShift.style.color = 'var(--text-muted)';
+      elements.adminApprovePane.classList.remove('hidden');
+      elements.adminShiftPane.classList.add('hidden');
+    });
+
+    elements.tabBtnShift.addEventListener('click', () => {
+      elements.tabBtnShift.classList.add('active');
+      elements.tabBtnApprove.classList.remove('active');
+      elements.tabBtnShift.style.color = 'var(--text-main)';
+      elements.tabBtnApprove.style.color = 'var(--text-muted)';
+      elements.adminShiftPane.classList.remove('hidden');
+      elements.adminApprovePane.classList.add('hidden');
+      renderShiftGrid();
+    });
+  }
+
+  // ドライバーサブタブの切り替えイベント
+  if (elements.tabBtnDriverRequest && elements.tabBtnDriverShift) {
+    elements.tabBtnDriverRequest.addEventListener('click', () => {
+      elements.tabBtnDriverRequest.classList.add('active');
+      elements.tabBtnDriverShift.classList.remove('active');
+      elements.tabBtnDriverRequest.style.color = 'var(--text-main)';
+      elements.tabBtnDriverShift.style.color = 'var(--text-muted)';
+      elements.driverRequestPane.classList.remove('hidden');
+      elements.driverShiftPane.classList.add('hidden');
+    });
+
+    elements.tabBtnDriverShift.addEventListener('click', () => {
+      elements.tabBtnDriverShift.classList.add('active');
+      elements.tabBtnDriverRequest.classList.remove('active');
+      elements.tabBtnDriverShift.style.color = 'var(--text-main)';
+      elements.tabBtnDriverRequest.style.color = 'var(--text-muted)';
+      elements.driverShiftPane.classList.remove('hidden');
+      elements.driverRequestPane.classList.add('hidden');
+      renderDriverShiftGrid();
+    });
+  }
+
+  // ドライバー用シフト月切り替えイベント
+  if (elements.driverShiftPrevMonthBtn) {
+    elements.driverShiftPrevMonthBtn.addEventListener('click', () => {
+      state.currentMonth--;
+      if (state.currentMonth < 1) {
+        state.currentMonth = 12;
+        state.currentYear--;
+      }
+      loadDriverDashboard();
+    });
+  }
+  if (elements.driverShiftNextMonthBtn) {
+    elements.driverShiftNextMonthBtn.addEventListener('click', () => {
+      state.currentMonth++;
+      if (state.currentMonth > 12) {
+        state.currentMonth = 1;
+        state.currentYear++;
+      }
+      loadDriverDashboard();
+    });
+  }
+
+
+
+  // シフト操作ボタンのイベントバインド
+  if (elements.btnSaveDraft) elements.btnSaveDraft.addEventListener('click', saveShiftDraft);
+  if (elements.btnPublishShift) elements.btnPublishShift.addEventListener('click', publishShift);
+  if (elements.btnExportCsv) elements.btnExportCsv.addEventListener('click', exportShiftCsv);
+
+  // シフト編集モード用ボタンのバインド
+  if (elements.btnEditShift) {
+    elements.btnEditShift.addEventListener('click', () => {
+      state.isShiftEditing = true;
+      state.originalShifts = JSON.parse(JSON.stringify(state.shifts)); // バックアップ
+      showToast("シフトの編集を開始しました。セルをクリックして「出」と「休・希望」を切り替えてください。", "info");
+      renderShiftGrid();
+    });
+  }
+  if (elements.btnConfirmShift) {
+    elements.btnConfirmShift.addEventListener('click', async () => {
+      state.isShiftEditing = false;
+      try {
+        await db.saveShifts(state.currentYear, state.currentMonth, state.shifts, 'draft');
+        state.shiftPublishStatus = 'draft';
+        showToast("シフトの変更を確定して下書き保存しました！");
+      } catch (err) {
+        if (err.code === 'DB_MIGRATION_REQUIRED') {
+          state.shiftPublishStatus = 'draft';
+          alert("【注意】シフトは保存されましたが、データベースの更新（マイグレーション）が必要です。\n\n完全に動作させるには、SupabaseのSQL Editor等で以下のSQLを実行してください：\n\nALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS assigned_center TEXT;\nALTER TABLE public.shifts DROP CONSTRAINT IF EXISTS shifts_shift_type_check;\nCREATE TABLE IF NOT EXISTS public.shift_types (\n  id TEXT PRIMARY KEY,\n  name TEXT NOT NULL,\n  is_work BOOLEAN NOT NULL DEFAULT false,\n  color TEXT\n);");
+        } else {
+          showToast("変更確定エラー: " + err.message, 'error');
+        }
+      }
+      renderShiftGrid();
+    });
+  }
+  if (elements.btnCancelEditShift) {
+    elements.btnCancelEditShift.addEventListener('click', () => {
+      state.isShiftEditing = false;
+      state.shifts = JSON.parse(JSON.stringify(state.originalShifts)); // バックアップから復元
+      showToast("編集をキャンセルし、変更前の状態に戻しました。");
+      renderShiftGrid();
+    });
+  }
 
   // 設定関連
   elements.settingsBtn.addEventListener('click', openSettingsModal);
@@ -1150,8 +2093,6 @@ async function initApp() {
 
 
 
-
-
   // 各種モーダル閉じるボタンのバインド
   elements.closeDetailBtn.addEventListener('click', () => closeModal(elements.detailModal));
   
@@ -1164,6 +2105,164 @@ async function initApp() {
       if (adminArea) adminArea.remove();
     }
   });
+}
+
+
+
+// ドライバー画面用の確定シフト表テーブル描画
+function renderDriverShiftGrid() {
+  if (!elements.driverShiftGridContainer) return;
+
+  // 月表示の更新
+  const monthTitle = document.getElementById('driver-shift-calendar-month');
+  if (monthTitle) {
+    monthTitle.textContent = `${state.currentYear}年 ${state.currentMonth}月`;
+  }
+
+  // 所属先名称の表示更新
+  const paneTitle = document.getElementById('driver-shift-pane-title');
+  if (paneTitle) {
+    paneTitle.textContent = `確定シフト表`;
+  }
+
+  // シフトが未公開の場合
+  if (state.shiftPublishStatus !== 'published') {
+    elements.driverShiftGridContainer.innerHTML = `
+      <div class="empty-state" style="padding: 2.5rem; text-align: center; color: var(--text-muted); font-size: 0.9rem;">
+        🔒 当月のシフトは現在調整中（未確定）です。確定・公開までお待ちください。
+      </div>
+    `;
+    return;
+  }
+
+  if (state.drivers.length === 0) {
+    elements.driverShiftGridContainer.innerHTML = `
+      <div class="empty-state" style="padding: 2.5rem; text-align: center; color: var(--text-muted); font-size: 0.9rem;">
+        ドライバーが登録されていません。
+      </div>
+    `;
+    return;
+  }
+
+  // ログインしたドライバーの所属先一覧を取得
+  const myStations = state.user && state.user.center_station 
+    ? state.user.center_station.split(',').map(s => s.trim()) 
+    : [];
+
+  const stationsToRender = myStations.length === 0 ? ['all'] : myStations;
+  let html = '';
+
+  stationsToRender.forEach((stationName, idx) => {
+    // 各所属先に所属するドライバーのみを抽出
+    const filteredDrivers = state.drivers.filter(d => {
+      if (stationName === 'all') return true;
+      const dStations = d.center_station ? d.center_station.split(',').map(s => s.trim()) : [];
+      return dStations.includes(stationName);
+    });
+
+    // 該当する所属先のドライバーが一人もいない場合はテーブルを描画しない
+    if (filteredDrivers.length === 0 && stationName !== 'all') {
+      return;
+    }
+
+    const lastDay = new Date(state.currentYear, state.currentMonth, 0).getDate();
+    
+    // 所属先カード風のコンテナ
+    html += `<div class="station-shift-section" style="margin: 1.25rem; border: 1px solid var(--border-color); border-radius: 8px; background: rgba(255,255,255,0.01); overflow: hidden;">`;
+    
+    // 所属先名ヘッダーの描画（所属ありの場合のみ）
+    if (stationName !== 'all') {
+      html += `<h3 style="font-size: 1.05rem; padding: 0.75rem 1.25rem; background: rgba(255,255,255,0.02); margin: 0; border-bottom: 1px solid var(--border-color); font-weight: 700; color: var(--accent-color); display: flex; align-items: center; gap: 0.5rem;">🏢 ${stationName}</h3>`;
+    }
+    
+    html += `<div class="shift-table-wrapper"><table class="shift-table"><thead><tr>`;
+    html += `<th class="driver-name-col">ドライバー名</th>`;
+    const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
+    for (let day = 1; day <= lastDay; day++) {
+      const date = new Date(state.currentYear, state.currentMonth - 1, day);
+      const dayOfWeek = date.getDay();
+      const dayOfWeekStr = dayNames[dayOfWeek];
+      
+      let colorStyle = "";
+      if (dayOfWeek === 0) {
+        colorStyle = "color: var(--rejected);";
+      } else if (dayOfWeek === 6) {
+        colorStyle = "color: var(--accent-color);";
+      }
+      
+      html += `<th>${day}<br><span style="font-size: 0.65rem; font-weight: normal; opacity: 0.85; ${colorStyle}">(${dayOfWeekStr})</span></th>`;
+    }
+    html += `<th class="shift-stat-col">出勤日数</th>`;
+    html += `</tr></thead><tbody>`;
+
+    // 各ドライバーの行を描画 (閲覧用のため、バッジの削除ボタンや追加プルダウンは一切描画しない)
+    filteredDrivers.forEach(drv => {
+      html += `<tr>`;
+      const isMe = drv.id === state.user.id;
+      const nameStyle = isMe ? 'font-weight: 700; color: var(--accent-color);' : '';
+      
+      html += `<td class="driver-name-col" style="${nameStyle}">${drv.name} ${isMe ? '(自分)' : ''}</td>`;
+      
+      let workCount = 0;
+
+      for (let day = 1; day <= lastDay; day++) {
+        const dateStr = `${state.currentYear}-${String(state.currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        
+        const dayShift = state.shifts.find(s => s.driver_id === drv.id && s.shift_date === dateStr);
+        const req = state.allRequests.find(r => r.driver_id === drv.id && r.request_date === dateStr && r.status === 'approved');
+        const shiftType = dayShift ? dayShift.shift_type : (req ? 'hope_off' : 'work');
+        const assignedCenter = dayShift ? dayShift.assigned_center : null;
+
+        const typeMatch = state.shiftTypes.find(t => t.id === shiftType);
+        const isWork = typeMatch ? typeMatch.is_work : (shiftType === 'work');
+
+        // 閲覧用のため、クリックイベントのない静的セルとして描画
+        if (isWork) {
+          const displayText = assignedCenter ? assignedCenter.substring(0, 2) : (typeMatch ? typeMatch.name : '○');
+          const titleText = assignedCenter ? assignedCenter : (typeMatch ? typeMatch.name : '出勤');
+          html += `<td class="shift-cell work" style="cursor: default;" title="${titleText}">${displayText}</td>`;
+          workCount++;
+        } else {
+          const displayText = typeMatch ? typeMatch.name : (req ? '希望' : '休');
+          html += `<td class="shift-cell hope_off" style="cursor: default;" title="${displayText}">${displayText}</td>`;
+        }
+      }
+
+      html += `<td class="shift-stat-col">${workCount}日</td>`;
+      html += `</tr>`;
+    });
+
+    // 日次出勤人数過不足行
+    html += `<tr class="sufficiency-row">`;
+    html += `<td class="driver-name-col">稼働状況</td>`;
+    
+    const reqCount = parseInt(document.getElementById('config-required-drivers').value) || 2;
+
+    for (let day = 1; day <= lastDay; day++) {
+      const dateStr = `${state.currentYear}-${String(state.currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      let scheduledCount = 0;
+      filteredDrivers.forEach(drv => {
+        const dayShift = state.shifts.find(s => s.driver_id === drv.id && s.shift_date === dateStr);
+        const req = state.allRequests.find(r => r.driver_id === drv.id && r.request_date === dateStr && r.status === 'approved');
+        const shiftType = dayShift ? dayShift.shift_type : (req ? 'hope_off' : 'work');
+        const typeMatch = state.shiftTypes.find(t => t.id === shiftType);
+        const isWork = typeMatch ? typeMatch.is_work : (shiftType === 'work');
+        if (isWork) scheduledCount++;
+      });
+
+      const isSufficient = scheduledCount >= reqCount;
+      const cellClass = isSufficient ? 'sufficient' : 'insufficient';
+      html += `<td class="${cellClass}" title="${isSufficient ? '基準達成' : '要員不足'}">${scheduledCount}/${reqCount}</td>`;
+    }
+
+    html += `<td></td></tr></tbody></table></div></div>`;
+  });
+
+  elements.driverShiftGridContainer.innerHTML = html || `
+    <div class="empty-state" style="padding: 2.5rem; text-align: center; color: var(--text-muted); font-size: 0.9rem;">
+      表示可能な所属先のシフト表がありません。
+    </div>
+  `;
 }
 
 // ドキュメント読み込み完了時に起動
