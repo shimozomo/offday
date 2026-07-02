@@ -1223,3 +1223,286 @@ main {
   100% { border-color: rgba(255, 179, 0, 0.7); box-shadow: 0 4px 20px rgba(255, 179, 0, 0.15); }
 }
 
+/* =================================================================
+   AUTOMATED SHIFT BOARD
+   ================================================================= */
+.admin-tabs .tab-btn.active {
+  color: var(--accent-color) !important;
+  border-bottom: 2px solid var(--accent-color) !important;
+  background: rgba(0, 229, 255, 0.05) !important;
+}
+.admin-tabs .tab-btn:hover {
+  color: var(--text-main) !important;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.shift-control-panel {
+  margin-bottom: 1.5rem;
+}
+
+.shift-table-wrapper {
+  overflow-x: auto;
+  width: 100%;
+}
+
+.shift-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  color: var(--text-main);
+  background: transparent;
+  min-width: 800px;
+}
+
+.shift-table th, 
+.shift-table td {
+  padding: 0.75rem 0.5rem;
+  border: 1px solid var(--border-color);
+  text-align: center;
+  min-width: 32px;
+}
+
+.shift-table th {
+  background: rgba(255, 255, 255, 0.02);
+  font-weight: 600;
+}
+
+.shift-table th.driver-name-col, 
+.shift-table td.driver-name-col {
+  position: sticky;
+  left: 0;
+  background: #0b0f19; /* ベースの暗背景色に合わせる */
+  z-index: 10;
+  text-align: left;
+  font-weight: 600;
+  min-width: 120px;
+  max-width: 150px;
+  border-right: 2px solid rgba(255, 255, 255, 0.15);
+}
+
+.shift-table th.driver-name-col {
+  background: #0e1422;
+}
+
+.shift-table tr.sufficiency-row {
+  background: rgba(255, 255, 255, 0.01);
+}
+
+.shift-table tr.sufficiency-row td {
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.shift-table tr.sufficiency-row td.insufficient {
+  background: rgba(255, 23, 68, 0.15);
+  color: var(--rejected);
+  animation: pulse-red-subtle 3s infinite alternate;
+}
+
+.shift-table tr.sufficiency-row td.sufficient {
+  background: rgba(0, 230, 118, 0.08);
+  color: var(--approved);
+}
+
+.shift-cell {
+  cursor: default;
+  user-select: none;
+  font-weight: 700;
+  font-size: 0.75rem;
+  transition: all 0.15s ease;
+  border-radius: 2px;
+}
+
+.shift-table.editing .shift-cell {
+  cursor: pointer;
+}
+
+.shift-table.editing .shift-cell:hover {
+  filter: brightness(1.25);
+  transform: scale(1.05);
+}
+
+.shift-cell.work {
+  background: var(--approved-bg);
+  color: var(--approved);
+}
+
+.shift-cell.hope_off {
+  background: var(--pending-bg);
+  color: var(--pending);
+}
+
+.shift-stat-col {
+  font-size: 0.75rem;
+  color: var(--text-sub);
+  min-width: 60px !important;
+  background: rgba(255, 255, 255, 0.01);
+}
+
+/* ドライバーカレンダー内の出勤表示 */
+.cell.shift-work {
+  border-bottom: 3px solid var(--approved);
+}
+.cell.shift-work::after {
+  content: '出勤' !important;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--approved);
+  text-align: right;
+}
+
+/* ドライバーカレンダー内の公休・休日表示 */
+.cell.shift-off {
+  border-bottom: 3px solid var(--text-muted);
+  background: rgba(255, 255, 255, 0.02);
+}
+.cell.shift-off::after {
+  content: '休日' !important;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+/* ドライバーカレンダー内の希望休（確定）表示 */
+.cell.shift-hope-off {
+  border-bottom: 3px solid var(--pending);
+  background: var(--pending-bg);
+}
+.cell.shift-hope-off::after {
+  content: '希望休' !important;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--pending);
+  text-align: right;
+}
+
+/* シフトステータスバナー (ドライバー画面) */
+.shift-status-banner {
+  background: linear-gradient(135deg, rgba(0, 229, 255, 0.12) 0%, rgba(0, 184, 212, 0.03) 100%);
+  border: 1px solid rgba(0, 229, 255, 0.25);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1.25rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 4px 20px rgba(0, 229, 255, 0.04);
+}
+
+.shift-status-banner.published {
+  background: linear-gradient(135deg, rgba(0, 230, 118, 0.12) 0%, rgba(0, 200, 83, 0.03) 100%);
+  border: 1px solid rgba(0, 230, 118, 0.3);
+  box-shadow: 0 4px 20px rgba(0, 230, 118, 0.06);
+}
+
+.shift-status-banner.published .banner-icon {
+  animation: pulse-scale 2s infinite alternate;
+}
+
+@keyframes pulse-red-subtle {
+  0% { background: rgba(255, 23, 68, 0.1); }
+  100% { background: rgba(255, 23, 68, 0.2); }
+}
+
+@keyframes pulse-scale {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.15); }
+}
+
+/* シフト表内セレクトボックス用の調整 */
+.shift-table td.editing-select {
+  padding: 0 !important;
+}
+
+.shift-cell-select {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  width: 100%;
+  height: 38px;
+  text-align: center;
+  text-align-last: center;
+  outline: none;
+  cursor: pointer;
+  padding: 0.75rem 0.2rem;
+  box-sizing: border-box;
+}
+
+.shift-cell-select option {
+  background: #0e1422;
+  color: var(--text-main);
+  text-align: center;
+  font-weight: normal;
+}
+
+/* =================================================================
+   DRIVER AFFILIATION BADGES & ADD DROPDOWN (IN GRID CELL)
+   ================================================================= */
+.driver-station-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: rgba(0, 229, 255, 0.06);
+  border: 1px solid rgba(0, 229, 255, 0.15);
+  border-radius: 12px;
+  color: #e2e8f0;
+  font-size: 0.7rem;
+  line-height: 1;
+  white-space: nowrap;
+  box-sizing: border-box;
+  transition: all 0.2s ease;
+}
+
+.driver-station-badge:hover {
+  background: rgba(0, 229, 255, 0.1);
+  border-color: rgba(0, 229, 255, 0.35);
+}
+
+.driver-station-badge .remove-station-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.7rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-left: 2px;
+}
+
+.driver-station-badge .remove-station-btn:hover {
+  background: rgba(255, 23, 68, 0.25);
+  color: #ff1744;
+}
+
+/* 追加用セレクトボックス */
+.add-station-select {
+  font-size: 0.65rem;
+  height: 20px;
+  padding: 0 4px;
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+  margin: 0;
+}
+
+.add-station-select:hover {
+  border-color: var(--accent-color);
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.add-station-select option {
+  background: #0e1422;
+  color: var(--text-main);
+}
+
+

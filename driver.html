@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <!-- SEO Meta Tags -->
+  <title>希望休申請 (ドライバー用)</title>
+  <meta name="description" content="ドライバーの希望休提出と確定シフト閲覧に特化したスケジュール管理Webアプリケーションです。">
+  <meta name="author" content="Antigravity">
+  
+  <!-- Mobile Web App & OGP Settings -->
+  <meta name="apple-mobile-web-app-title" content="希望休申請">
+  <meta name="application-name" content="希望休申請">
+  <meta property="og:title" content="希望休申請 (ドライバー用)">
+  <meta property="og:description" content="ドライバーの希望休提出と確定シフト閲覧に特化したスケジュール管理Webアプリケーションです。">
+  <meta property="og:type" content="website">
+  
+  <!-- CSS Stylesheet -->
+  <link rel="stylesheet" href="app.css">
+  
+  <!-- Supabase JS Library CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <!-- =================================================================
+       COMMON HEADER (DRIVER VERSION)
+       ================================================================= -->
+  <header id="app-header" class="hidden">
+    <div class="logo" style="display:flex; align-items:center; gap:0.5rem">
+      <img src="logo.png" alt="株式会社enTrust" style="height: 32px; width: 32px; border-radius: 4px; object-fit: contain">
+      <div style="display:flex; flex-direction:column; line-height:1.15">
+        <span style="font-size:1.05rem; font-weight:700">株式会社enTrust</span>
+        <span class="text-gradient" style="font-size:0.9rem; font-weight:700">希望休申請</span>
+      </div>
+    </div>
+    
+    <div class="nav-right">
+      <!-- 接続ステータス -->
+      <div class="connection-badge demo" id="connection-badge">
+        <div class="dot"></div>
+        <span>デモモード運転中</span>
+      </div>
+
+      <!-- ユーザー情報 -->
+      <div class="user-profile-menu">
+        <div class="user-avatar" id="user-avatar-initial">👤</div>
+        <div class="user-info-text">
+          <span class="user-name" id="user-name-display">ドライバー名</span>
+          <span class="user-role-badge" id="user-role-display">ドライバー</span>
+        </div>
+      </div>
+      
+      <!-- ログアウト -->
+      <button class="btn-icon" id="logout-btn" title="ログアウト">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- =================================================================
+       MAIN CONTENT CONTAINER
+       ================================================================= -->
+  <main>
+    
+    <!-- 1. AUTHENTICATION SCREEN -->
+    <section id="auth-screen" class="auth-container">
+      
+      <!-- LOGIN CARD -->
+      <div class="glass-panel auth-card" id="login-card">
+        <div style="display: flex; align-items: center; justify-content: center; gap: 0.75rem; margin-bottom: 1.5rem;">
+          <img src="logo.png" alt="株式会社enTrust" style="height: 40px; width: 40px; border-radius: 6px; object-fit: contain">
+          <span style="font-size: 1.5rem; font-weight: 700; letter-spacing: 0.03em; color: var(--text-main);">株式会社enTrust</span>
+        </div>
+        <h1 class="auth-title" style="margin-bottom: 0.25rem;">希望休申請 (ドライバー)</h1>
+        <p class="auth-subtitle">申請期間：毎月1日〜20日まで</p>
+        
+        <form id="login-form">
+          <div id="login-driver-inputs">
+            <div class="form-group">
+              <label class="form-label" for="login-password">パスワード</label>
+              <input type="password" class="form-input" id="login-password" placeholder="••••••••">
+            </div>
+          </div>
+
+          <button type="submit" class="btn" style="margin-top:1rem">
+            ログイン
+          </button>
+        </form>
+
+        <p class="auth-toggle">アカウントをお持ちでないですか？ <span id="to-signup">新規登録</span></p>
+        <div style="margin-top: 1.5rem; text-align: center; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+          <a href="index.html" style="color: var(--text-muted); font-size: 0.85rem; text-decoration: none;">← ポータル画面に戻る</a>
+        </div>
+      </div>
+
+      <!-- SIGNUP CARD -->
+      <div class="glass-panel auth-card hidden" id="signup-card">
+        <div style="display: flex; align-items: center; justify-content: center; gap: 0.75rem; margin-bottom: 1.5rem;">
+          <img src="logo.png" alt="株式会社enTrust" style="height: 40px; width: 40px; border-radius: 6px; object-fit: contain">
+          <span style="font-size: 1.5rem; font-weight: 700; letter-spacing: 0.03em; color: var(--text-main);">株式会社enTrust</span>
+        </div>
+        <h2 class="auth-title" style="margin-bottom: 0.25rem;">ドライバー新規登録</h2>
+        <p class="auth-subtitle">希望休システムに新しくドライバーを登録します</p>
+        
+        <form id="signup-form">
+          <div class="form-group">
+            <label class="form-label" for="signup-name">お名前</label>
+            <input type="text" class="form-input" id="signup-name" required placeholder="山田 太郎">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="signup-email">メールアドレス</label>
+            <input type="email" class="form-input" id="signup-email" required placeholder="driver@example.com">
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label" for="signup-password">パスワード</label>
+            <input type="password" class="form-input" id="signup-password" required minlength="4" placeholder="4文字以上">
+          </div>
+          <button type="submit" class="btn">
+            登録する
+          </button>
+        </form>
+
+        <p class="auth-toggle">すでに登録済みですか？ <span id="to-login">ログイン</span></p>
+      </div>
+
+    </section>
+
+    <!-- 2. DRIVER VIEW -->
+    <section id="driver-view" class="hidden">
+      <!-- ドライバー機能サブナビゲーション (タブ) -->
+      <div class="driver-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem;">
+        <button class="tab-btn active" id="tab-btn-driver-request" style="background: none; border: none; padding: 0.5rem 1rem; color: var(--text-main); font-weight: 600; cursor: pointer; border-radius: 4px; transition: all 0.2s;">希望休提出</button>
+        <button class="tab-btn" id="tab-btn-driver-shift" style="background: none; border: none; padding: 0.5rem 1rem; color: var(--text-muted); font-weight: 500; cursor: pointer; border-radius: 4px; transition: all 0.2s;">シフト表閲覧</button>
+      </div>
+
+      <!-- 1. 希望休提出・管理パネル -->
+      <div id="driver-request-pane">
+        <!-- 期限お知らせバナー (15日〜20日の間のみ自動表示) -->
+        <div id="deadline-banner" class="deadline-banner hidden">
+          <div class="banner-content">
+            <span class="banner-icon">⚠️</span>
+            <span class="banner-text">【提出期限のお知らせ】希望休の提出期限は<strong>毎月20日</strong>までです。お早めにご提出ください。</span>
+          </div>
+        </div>
+
+        <!-- シフト状況お知らせバナー -->
+        <div id="shift-status-banner" class="shift-status-banner">
+          <div class="banner-content">
+            <span class="banner-icon">📅</span>
+            <span class="banner-text" id="shift-status-text">シフト状況：読込中...</span>
+          </div>
+        </div>
+
+        <!-- スタッツ -->
+        <div class="stats-row">
+          <div class="stat-card all">
+            <span class="stat-label">総申請</span>
+            <span class="stat-value" id="stat-total">0日</span>
+          </div>
+          <div class="stat-card approved">
+            <span class="stat-label">承認済み</span>
+            <span class="stat-value" id="stat-approved">0日</span>
+          </div>
+          <div class="stat-card pending">
+            <span class="stat-label">保留中</span>
+            <span class="stat-value" id="stat-pending">0日</span>
+          </div>
+        </div>
+
+        <div class="dashboard-grid">
+          <!-- カレンダーエリア -->
+          <div class="glass-panel calendar-wrapper">
+            <div class="panel-header">
+              <h2 class="panel-title">希望休選択カレンダー</h2>
+              <div class="calendar-ctrl">
+                <div class="ctrl-buttons">
+                  <button class="btn-icon" id="prev-month-btn">◀</button>
+                  <span class="month-title" id="driver-calendar-month">2026年 6月</span>
+                  <button class="btn-icon" id="next-month-btn">▶</button>
+                </div>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="calendar-grid" id="driver-calendar-grid">
+                <!-- JSでカレンダー生成 -->
+              </div>
+              <!-- カレンダー凡例 -->
+              <div class="driver-legend" style="display: flex; gap: 1rem; font-size: 0.75rem; justify-content: center; margin-top: 1rem; flex-wrap: wrap; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.05);">
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width:12px; height:12px; background:rgba(0, 229, 255, 0.15); border:1px solid var(--accent-color); display:inline-block; border-radius: 2px;"></span> 選択中</span>
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width:12px; height:12px; background:var(--pending-bg); border:1px solid var(--pending); display:inline-block; border-radius: 2px;"></span> 申請中</span>
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width:12px; height:12px; background:var(--approved-bg); border:1px solid var(--approved); display:inline-block; border-radius: 2px;"></span> 承認済</span>
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width:12px; height:12px; border-bottom:3px solid var(--approved); display:inline-block;"></span> 出勤</span>
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width:12px; height:12px; border-bottom:3px solid var(--pending); display:inline-block;"></span> 希望休</span>
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width:12px; height:12px; border-bottom:3px solid var(--text-muted); display:inline-block;"></span> 休日</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 選択リスト・送信パネル -->
+          <div class="glass-panel" style="display:flex; flex-direction:column">
+            <div class="panel-header">
+              <h2 class="panel-title">今回提出する希望休</h2>
+            </div>
+            <div class="panel-body" style="flex:1; display:flex; flex-direction:column; justify-content:space-between">
+              <div>
+                <p class="panel-intro">カレンダーで日付を複数選択し、内容を確認して送信してください。終日単位のみ、日数の上限はありません。</p>
+                <div class="requests-list" id="draft-requests-list">
+                  <!-- 下書き希望休リストが動的に挿入される -->
+                </div>
+              </div>
+              
+              <button class="btn" id="submit-requests-btn" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                希望休をまとめて送信する
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. シフト表閲覧パネル (初期状態は非表示) -->
+      <div id="driver-shift-pane" class="hidden">
+        <div class="glass-panel" style="overflow: hidden; display: flex; flex-direction: column;">
+          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
+              <h2 class="panel-title" id="driver-shift-pane-title" style="margin-bottom: 0;">確定シフト表</h2>
+              <!-- シフト表用 月表示切り替えコントローラー -->
+              <div class="calendar-ctrl" style="margin-bottom: 0;">
+                <div class="ctrl-buttons">
+                  <button class="btn-icon" id="driver-shift-prev-month-btn">◀</button>
+                  <span class="month-title" id="driver-shift-calendar-month" style="font-size: 1.05rem; font-weight: 700;">2026年 6月</span>
+                  <button class="btn-icon" id="driver-shift-next-month-btn">▶</button>
+                </div>
+              </div>
+            </div>
+            <div style="display: flex; gap: 1rem; align-items: center; font-size: 0.8rem; flex-wrap: wrap;">
+              <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width:12px; height:12px; background:var(--approved-bg); border:1px solid var(--approved); display:inline-block; border-radius: 2px;"></span> 出勤</span>
+              <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><span style="width:12px; height:12px; background:var(--pending-bg); border:1px solid var(--pending); display:inline-block; border-radius: 2px;"></span> 希望休</span>
+              <button type="button" class="btn btn-secondary" id="btn-driver-download-pdf" style="font-size: 0.75rem; height: 28px; padding: 0 10px; margin-left: 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                📄 PDFダウンロード
+              </button>
+            </div>
+          </div>
+          
+          <div class="panel-body" style="overflow-x: auto; padding: 0;">
+            <div id="driver-shift-grid-container" style="width: 100%;">
+              <!-- JSで動的にシフト表テーブルを生成 -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- =================================================================
+       MODALS & FLOATING DIALOGS
+       ================================================================= -->
+
+  <!-- EXISTING REQUEST DETAIL DIALOG -->
+  <div class="modal-overlay" id="detail-modal">
+    <div class="glass-panel modal-content" style="max-width:400px">
+      <div class="panel-header">
+        <h3 class="panel-title">希望休の詳細</h3>
+        <button class="btn-icon" id="close-detail-btn" type="button">✖</button>
+      </div>
+      <div class="panel-body">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem">
+          <h4 id="detail-date-label" style="font-size:1.1rem; font-weight:600"></h4>
+          <span class="badge" id="detail-status-badge">保留中</span>
+        </div>
+
+        <div style="margin-bottom:1.5rem" class="hidden">
+          <p class="form-label" style="font-size:0.75rem">管理者からの返答:</p>
+          <div id="detail-admin-comment"></div>
+        </div>
+
+        <button class="btn btn-secondary hidden" id="detail-cancel-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="margin-right:0.25rem"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+          この希望休申請を取り消す
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- FLOATING TOAST NOTIFICATIONS CONTAINER -->
+  <div id="toast-container"></div>
+
+  <!-- JavaScript App Controllers -->
+  <script src="db.js"></script>
+  <script src="driver.js"></script>
+
+</body>
+</html>

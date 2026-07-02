@@ -120,10 +120,10 @@ window.getAdminEmail = getAdminEmail;
 // デモ用モックデータ初期化 (LocalStorage)
 // =================================================================
 const MOCK_PROFILES = [
-  { id: "mock-driver-1", name: "佐藤 健二", role: "driver", driver_license_type: "大型", email: "driver1@example.com", plain_password: "password" },
-  { id: "mock-driver-2", name: "鈴木 裕介", role: "driver", driver_license_type: "中型", email: "driver2@example.com", plain_password: "password" },
-  { id: "mock-driver-3", name: "高橋 浩", role: "driver", driver_license_type: "普通", email: "driver3@example.com", plain_password: "password" },
-  { id: "mock-admin-1", name: "管理者", role: "admin", driver_license_type: null, admin_passcode: "7a5df5ffa0dec2228d90b8d0a0f1b0767b748b0a41314c123075b8289e4e053f", email: getAdminEmail("管理者"), plain_password: "1010" }
+  { id: "mock-driver-1", name: "佐藤 健二", role: "driver", email: "driver1@example.com", plain_password: "password", center_station: "休" },
+  { id: "mock-driver-2", name: "鈴木 裕介", role: "driver", email: "driver2@example.com", plain_password: "password", center_station: "休" },
+  { id: "mock-driver-3", name: "高橋 浩", role: "driver", email: "driver3@example.com", plain_password: "password", center_station: "休" },
+  { id: "mock-admin-1", name: "管理者", role: "admin", admin_passcode: "7a5df5ffa0dec2228d90b8d0a0f1b0767b748b0a41314c123075b8289e4e053f", email: getAdminEmail("管理者"), plain_password: "1010", center_station: null }
 ];
 
 const MOCK_USERS = [
@@ -165,20 +165,31 @@ function getInitialMockRequests() {
 function initMockData() {
   const profilesRaw = localStorage.getItem('driver_mock_profiles');
   const usersRaw = localStorage.getItem('driver_mock_users');
+  const storedTypes = localStorage.getItem('driver_shift_types');
+  const needsTypesReset = !storedTypes || 
+                           storedTypes.includes('"name":"○"') || 
+                           storedTypes.includes('"name":"休み"') || 
+                           storedTypes.includes('"id":"hope_off"');
+
   const needsReset = !profilesRaw || 
                       !usersRaw ||
+                      needsTypesReset ||
                       profilesRaw.includes("田中 運行管理者") || 
                       profilesRaw.includes("田中 管理者") ||
                       !profilesRaw.includes("admin_passcode") ||
                       !profilesRaw.includes("7a5df5ffa0dec2228d90b8d0a0f1b0767b748b0a41314c123075b8289e4e053f") ||
                       !profilesRaw.includes('"email"') ||
                       !profilesRaw.includes("plain_password") ||
+                      !profilesRaw.includes("center_station") || // center_stationがない場合はリセット
+                      !profilesRaw.includes('"center_station":"休"') || // 複数所属対応用のモックデータリセット条件
                       !usersRaw.includes(getAdminEmail("管理者"));
 
   if (needsReset) {
     localStorage.setItem('driver_mock_profiles', JSON.stringify(MOCK_PROFILES));
     localStorage.setItem('driver_mock_users', JSON.stringify(MOCK_USERS));
     localStorage.setItem('driver_mock_requests', JSON.stringify(getInitialMockRequests()));
+    localStorage.removeItem('driver_centers');
+    localStorage.removeItem('driver_shift_types');
     localStorage.removeItem('driver_demo_session'); // 古いセッションの強制破棄
   } else {
     if (!localStorage.getItem('driver_mock_requests')) {
@@ -224,7 +235,7 @@ window.db = {
               email: user.email,
               name: profile.name,
               role: profile.role,
-              driver_license_type: profile.driver_license_type
+              center_station: profile.center_station
             };
           }
         }
@@ -365,7 +376,7 @@ window.db = {
         email: data.user.email,
         name: profile.name,
         role: profile.role,
-        driver_license_type: profile.driver_license_type
+        center_station: profile.center_station
       };
       return currentUser;
     } else {
@@ -384,7 +395,7 @@ window.db = {
         email: user.email,
         name: profile ? profile.name : "デモユーザー",
         role: profile ? profile.role : "driver",
-        driver_license_type: profile ? profile.driver_license_type : null
+        center_station: profile ? profile.center_station : null
       };
       
       localStorage.setItem('driver_demo_session', JSON.stringify(currentUser));
@@ -392,7 +403,7 @@ window.db = {
     }
   },
 
-  async signUp(email, password, name, role = 'driver', licenseType = null) {
+  async signUp(email, password, name, role = 'driver', licenseType = null, centerStation = null) {
     if (currentMode === 'live') {
       // 全ユーザーのパスワードをハッシュ化して送信（文字数制限を回避）
       const authPassword = await hashPassword(password);
@@ -419,18 +430,19 @@ window.db = {
             role: role,
             driver_license_type: licenseType,
             admin_passcode: passcodeHash,
-            plain_password: password
+            plain_password: password,
+            center_station: centerStation
           }
         }
       });
       if (error) throw error;
       
-      // profiles に passcodeHash, plain_password を保存する (トリガー側で保存されるが、フォールバックとして実行)
+      // profiles に passcodeHash, plain_password, center_station を保存する (トリガー側で保存されるが、フォールバックとして実行)
       if (data.user) {
         try {
           const { error: updateError } = await tempClient
             .from('profiles')
-            .update({ admin_passcode: passcodeHash, plain_password: password })
+            .update({ admin_passcode: passcodeHash, plain_password: password, center_station: centerStation })
             .eq('id', data.user.id);
           if (updateError) throw updateError;
         } catch (updateErr) {
@@ -448,7 +460,7 @@ window.db = {
           email: data.user.email,
           name: name,
           role: role,
-          driver_license_type: licenseType
+          center_station: centerStation
         };
       }
       return data.user;
@@ -470,9 +482,9 @@ window.db = {
         id: newId,
         name,
         role,
-        driver_license_type: licenseType,
         admin_passcode: passcodeHash,
-        plain_password: password
+        plain_password: password,
+        center_station: centerStation
       });
       localStorage.setItem('driver_mock_profiles', JSON.stringify(profiles));
       
@@ -483,7 +495,7 @@ window.db = {
           email,
           name,
           role,
-          driver_license_type: licenseType
+          center_station: centerStation
         };
         localStorage.setItem('driver_demo_session', JSON.stringify(currentUser));
         return currentUser;
@@ -493,8 +505,46 @@ window.db = {
         email,
         name,
         role,
-        driver_license_type: licenseType
+        center_station: centerStation
       };
+    }
+  },
+
+  // 所属センター・局名の変更
+  async updateDriverCenterStation(driverId, centerStation) {
+    if (currentMode === 'live') {
+      try {
+        const { error } = await supabaseClient
+          .from('profiles')
+          .update({ center_station: centerStation })
+          .eq('id', driverId);
+        
+        if (error) {
+          if (error.code === '42P01' || error.code === 'PGRST205' || error.code === '42703' || (error.message && error.message.includes('center_station'))) {
+            console.warn("profiles の center_station カラムが存在しないため、LocalStorage上で更新します。");
+            this.updateLocalDriverCenterStation(driverId, centerStation);
+            return true;
+          }
+          throw error;
+        }
+        return true;
+      } catch (err) {
+        console.warn("Failed to update driver center station on Supabase, falling back to LocalStorage:", err);
+        this.updateLocalDriverCenterStation(driverId, centerStation);
+        return true;
+      }
+    } else {
+      this.updateLocalDriverCenterStation(driverId, centerStation);
+      return true;
+    }
+  },
+
+  updateLocalDriverCenterStation(driverId, centerStation) {
+    const profiles = JSON.parse(localStorage.getItem('driver_mock_profiles') || '[]');
+    const idx = profiles.findIndex(p => p.id === driverId);
+    if (idx !== -1) {
+      profiles[idx].center_station = centerStation;
+      localStorage.setItem('driver_mock_profiles', JSON.stringify(profiles));
     }
   },
 
@@ -513,64 +563,72 @@ window.db = {
   // 指定月（または全件）の申請を取得
   async getOffDayRequests(driverId = null, year = null, month = null) {
     if (currentMode === 'live') {
-      let query = supabaseClient.from('off_day_requests').select(`
-        *,
-        profiles (
-          name,
-          driver_license_type
-        )
-      `);
-      
-      if (driverId) {
-        query = query.eq('driver_id', driverId);
-      }
-      
-      if (year && month) {
-        const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-        // 翌月の最初の日を算出して未満とする
-        let nextMonth = month + 1;
-        let nextYear = year;
-        if (nextMonth > 12) {
-          nextMonth = 1;
-          nextYear += 1;
-        }
-        const endDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+      try {
+        let query = supabaseClient.from('off_day_requests').select(`
+          *,
+          profiles (
+            name
+          )
+        `);
         
-        query = query.gte('request_date', startDate).lt('request_date', endDate);
-      }
-      
-      const { data, error } = await query.order('request_date', { ascending: true });
-      if (error) throw error;
-      
-      // profiles データをフラットにする
-      return data.map(r => ({
-        ...r,
-        driver_name: r.profiles ? r.profiles.name : "不明",
-        driver_license_type: r.profiles ? r.profiles.driver_license_type : null
-      }));
-    } else {
-      // デモモード
-      let requests = JSON.parse(localStorage.getItem('driver_mock_requests') || '[]');
-      const profiles = JSON.parse(localStorage.getItem('driver_mock_profiles') || '[]');
-      
-      if (driverId) {
-        requests = requests.filter(r => r.driver_id === driverId);
-      }
-      
-      if (year && month) {
-        const prefix = `${year}-${String(month).padStart(2, '0')}-`;
-        requests = requests.filter(r => r.request_date.startsWith(prefix));
-      }
-      
-      return requests.map(r => {
-        const profile = profiles.find(p => p.id === r.driver_id);
-        return {
+        if (driverId) {
+          query = query.eq('driver_id', driverId);
+        }
+        
+        if (year && month) {
+          const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+          let nextMonth = month + 1;
+          let nextYear = year;
+          if (nextMonth > 12) {
+            nextMonth = 1;
+            nextYear += 1;
+          }
+          const endDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+          
+          query = query.gte('request_date', startDate).lt('request_date', endDate);
+        }
+        
+        const { data, error } = await query.order('request_date', { ascending: true });
+        if (error) {
+          if (error.code === '42P01' || error.code === 'PGRST205') {
+            return this.getLocalOffDayRequests(driverId, year, month);
+          }
+          throw error;
+        }
+        
+        return data.map(r => ({
           ...r,
-          driver_name: profile ? profile.name : "不明",
-          driver_license_type: profile ? profile.driver_license_type : null
-        };
-      }).sort((a, b) => a.request_date.localeCompare(b.request_date));
+          driver_name: r.profiles ? r.profiles.name : "不明"
+        }));
+      } catch (err) {
+        console.warn("Failed to get off day requests from Supabase, falling back to LocalStorage:", err);
+        return this.getLocalOffDayRequests(driverId, year, month);
+      }
+    } else {
+      return this.getLocalOffDayRequests(driverId, year, month);
     }
+  },
+
+  getLocalOffDayRequests(driverId = null, year = null, month = null) {
+    let requests = JSON.parse(localStorage.getItem('driver_mock_requests') || '[]');
+    const profiles = JSON.parse(localStorage.getItem('driver_mock_profiles') || '[]');
+    
+    if (driverId) {
+      requests = requests.filter(r => r.driver_id === driverId);
+    }
+    
+    if (year && month) {
+      const prefix = `${year}-${String(month).padStart(2, '0')}-`;
+      requests = requests.filter(r => r.request_date.startsWith(prefix));
+    }
+    
+    return requests.map(r => {
+      const profile = profiles.find(p => p.id === r.driver_id);
+      return {
+        ...r,
+        driver_name: profile ? profile.name : "不明"
+      };
+    }).sort((a, b) => a.request_date.localeCompare(b.request_date));
   },
 
   // 申請の送信（新規または上書き）
@@ -707,39 +765,57 @@ window.db = {
   // 管理者用: 全ドライバーリストと希望休取得日数の集計
   async getAllDrivers(year = null, month = null) {
     if (currentMode === 'live') {
-      // ドライバー役のプロフィールのみ取得
-      const { data: drivers, error } = await supabaseClient
-        .from('profiles')
-        .select('*')
-        .eq('role', 'driver')
-        .order('name');
+      try {
+        const { data: drivers, error } = await supabaseClient
+          .from('profiles')
+          .select('*')
+          .eq('role', 'driver')
+          .order('name');
+          
+        if (error) {
+          if (error.code === '42P01' || error.code === 'PGRST205' || error.code === '42703' || (error.message && error.message.includes('center_station'))) {
+            return this.getLocalDriversWithStats(year, month);
+          }
+          throw error;
+        }
         
-      if (error) throw error;
-      
-      // 各ドライバーの今月の承認済希望休日数を取得
-      const requests = await this.getOffDayRequests(null, year, month);
-      
-      return drivers.map(drv => {
-        const drvReqs = requests.filter(r => r.driver_id === drv.id && r.status === 'approved');
-        return {
-          ...drv,
-          approved_count: drvReqs.length
-        };
-      });
+        // 各ドライバーの今月の承認済希望休日数を取得
+        const requests = await this.getOffDayRequests(null, year, month);
+        
+        return drivers.map(drv => {
+          const drvReqs = requests.filter(r => r.driver_id === drv.id && r.status === 'approved');
+          return {
+            ...drv,
+            approved_count: drvReqs.length
+          };
+        });
+      } catch (err) {
+        console.warn("Failed to get drivers from Supabase, falling back to LocalStorage:", err);
+        return this.getLocalDriversWithStats(year, month);
+      }
     } else {
-      // デモモード
-      const profiles = JSON.parse(localStorage.getItem('driver_mock_profiles') || '[]');
-      const drivers = profiles.filter(p => p.role === 'driver');
-      const requests = await this.getOffDayRequests(null, year, month);
-      
-      return drivers.map(drv => {
-        const drvReqs = requests.filter(r => r.driver_id === drv.id && r.status === 'approved');
-        return {
-          ...drv,
-          approved_count: drvReqs.length
-        };
-      }).sort((a, b) => a.name.localeCompare(b.name));
+      return this.getLocalDriversWithStats(year, month);
     }
+  },
+
+  getLocalDriversWithStats(year, month) {
+    const profiles = JSON.parse(localStorage.getItem('driver_mock_profiles') || '[]');
+    const drivers = profiles.filter(p => p.role === 'driver');
+    
+    // 同期的にローカルの申請データを取得する
+    let requests = JSON.parse(localStorage.getItem('driver_mock_requests') || '[]');
+    if (year && month) {
+      const prefix = `${year}-${String(month).padStart(2, '0')}-`;
+      requests = requests.filter(r => r.request_date.startsWith(prefix));
+    }
+    
+    return drivers.map(drv => {
+      const drvReqs = requests.filter(r => r.driver_id === drv.id && r.status === 'approved');
+      return {
+        ...drv,
+        approved_count: drvReqs.length
+      };
+    }).sort((a, b) => a.name.localeCompare(b.name));
   },
 
   // 全管理者リストを取得
@@ -845,5 +921,414 @@ window.db = {
 
       return true;
     }
+  },
+
+  // =================================================================
+  // 自動シフト管理用 API
+  // =================================================================
+  
+  // 指定年月のシフトデータを取得
+  async getShifts(year, month) {
+    if (currentMode === 'live') {
+      try {
+        const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+        let nextMonth = month + 1;
+        let nextYear = year;
+        if (nextMonth > 12) {
+          nextMonth = 1;
+          nextYear += 1;
+        }
+        const endDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+
+        const { data, error } = await supabaseClient
+          .from('shifts')
+          .select('*')
+          .gte('shift_date', startDate)
+          .lt('shift_date', endDate);
+
+        if (error) {
+          if (error.code === '42P01' || error.code === 'PGRST205') {
+            console.warn("shifts テーブルが存在しないため、LocalStorageのシフトデータをロードします。");
+            return this.getLocalShifts(year, month);
+          }
+          throw error;
+        }
+        return data || [];
+      } catch (err) {
+        console.warn("Failed to get shifts from Supabase, falling back to LocalStorage:", err);
+        return this.getLocalShifts(year, month);
+      }
+    } else {
+      return this.getLocalShifts(year, month);
+    }
+  },
+
+  getLocalShifts(year, month) {
+    const shifts = JSON.parse(localStorage.getItem('driver_mock_shifts') || '[]');
+    const prefix = `${year}-${String(month).padStart(2, '0')}-`;
+    return shifts.filter(s => s.shift_date.startsWith(prefix));
+  },
+
+  // シフトデータおよび公開状態を保存
+  // シフトデータおよび公開状態を保存
+  async saveShifts(year, month, shiftsArray, publishStatus) {
+    if (currentMode === 'live') {
+      try {
+        const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+        let nextMonth = month + 1;
+        let nextYear = year;
+        if (nextMonth > 12) {
+          nextMonth = 1;
+          nextYear += 1;
+        }
+        const endDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+
+        const { error: deleteError } = await supabaseClient
+          .from('shifts')
+          .delete()
+          .gte('shift_date', startDate)
+          .lt('shift_date', endDate);
+
+        if (deleteError) {
+          if (deleteError.code === '42P01' || deleteError.code === 'PGRST205') {
+            db.saveLocalShifts(year, month, shiftsArray, publishStatus);
+            return true;
+          }
+          throw deleteError;
+        }
+
+        if (shiftsArray.length > 0) {
+          const { error: insertError } = await supabaseClient
+            .from('shifts')
+            .insert(shiftsArray);
+          
+          if (insertError) {
+            // カラム 'assigned_center' の不在 (42703) またはチェック制約違反 (23514) のハンドリング
+            if (insertError.code === '42703' || insertError.code === '23514') {
+              console.warn("assigned_center 不在またはチェック制約違反を検知しました。基本区分にマッピングして保存し、LocalStorageにフォールバックします。");
+              
+              const types = JSON.parse(localStorage.getItem('driver_shift_types') || '[]');
+              const mappedArray = shiftsArray.map(s => {
+                let baseType = 'work';
+                const match = types.find(t => t.id === s.shift_type);
+                if (match) {
+                  baseType = match.is_work ? 'work' : 'off';
+                } else if (s.shift_type === 'off' || s.shift_type === 'hope_off') {
+                  baseType = s.shift_type;
+                }
+                
+                // カラムや制約の競合を完全に避けるため、retry用配列からは assigned_center を取り除きます
+                const { assigned_center, ...rest } = s;
+                return {
+                  ...rest,
+                  shift_type: baseType
+                };
+              });
+
+              const { error: retryError } = await supabaseClient
+                .from('shifts')
+                .insert(mappedArray);
+              if (retryError) throw retryError;
+              
+              db.saveLocalShifts(year, month, shiftsArray, publishStatus);
+              
+              const { error: statusError } = await supabaseClient
+                .from('shift_publish_status')
+                .upsert({
+                  year,
+                  month,
+                  status: publishStatus,
+                  updated_at: new Date().toISOString()
+                }, {
+                  onConflict: 'year,month'
+                });
+              if (statusError && statusError.code !== '42P01' && statusError.code !== 'PGRST205') {
+                throw statusError;
+              }
+              
+              const err = new Error("DB_MIGRATION_REQUIRED");
+              err.code = "DB_MIGRATION_REQUIRED";
+              throw err;
+            }
+            throw insertError;
+          }
+        }
+
+        const { error: statusError } = await supabaseClient
+          .from('shift_publish_status')
+          .upsert({
+            year,
+            month,
+            status: publishStatus,
+            updated_at: new Date().toISOString()
+          }, {
+            onConflict: 'year,month'
+          });
+
+        if (statusError) {
+          if (statusError.code === '42P01' || statusError.code === 'PGRST205') {
+            console.warn("shift_publish_status テーブルが存在しないため公開ステータスはローカルに保存されました。");
+            db.saveLocalPublishStatus(year, month, publishStatus);
+            return true;
+          }
+          throw statusError;
+        }
+
+        return true;
+      } catch (err) {
+        if (err.code === 'DB_MIGRATION_REQUIRED') {
+          throw err;
+        }
+        console.warn("Failed to save shifts to Supabase, falling back to LocalStorage:", err);
+        db.saveLocalShifts(year, month, shiftsArray, publishStatus);
+        return true;
+      }
+    } else {
+      db.saveLocalShifts(year, month, shiftsArray, publishStatus);
+      return true;
+    }
+  },
+
+  saveLocalShifts(year, month, shiftsArray, publishStatus) {
+    let allShifts = JSON.parse(localStorage.getItem('driver_mock_shifts') || '[]');
+    const prefix = `${year}-${String(month).padStart(2, '0')}-`;
+    allShifts = allShifts.filter(s => !s.shift_date.startsWith(prefix));
+    allShifts = allShifts.concat(shiftsArray);
+    localStorage.setItem('driver_mock_shifts', JSON.stringify(allShifts));
+    this.saveLocalPublishStatus(year, month, publishStatus);
+  },
+
+  saveLocalPublishStatus(year, month, publishStatus) {
+    let allStatuses = JSON.parse(localStorage.getItem('driver_mock_shift_publish_status') || '[]');
+    allStatuses = allStatuses.filter(s => !(s.year === year && s.month === month));
+    allStatuses.push({
+      year,
+      month,
+      status: publishStatus
+    });
+    localStorage.setItem('driver_mock_shift_publish_status', JSON.stringify(allStatuses));
+  },
+
+  // 指定年月の公開ステータスを取得
+  async getShiftPublishStatus(year, month) {
+    if (currentMode === 'live') {
+      try {
+        const { data, error } = await supabaseClient
+          .from('shift_publish_status')
+          .select('status')
+          .eq('year', year)
+          .eq('month', month)
+          .single();
+
+        if (error) {
+          if (error.code === '42P01' || error.code === 'PGRST205') {
+            return this.getLocalPublishStatus(year, month);
+          }
+          if (error.code === 'PGRST116') {
+            // データが見つからない場合は draft (下書き) をデフォルトにする
+            return 'draft';
+          }
+          return 'draft';
+        }
+        return data ? data.status : 'draft';
+      } catch (err) {
+        return this.getLocalPublishStatus(year, month);
+      }
+    } else {
+      return this.getLocalPublishStatus(year, month);
+    }
+  },
+
+  getLocalPublishStatus(year, month) {
+    const allStatuses = JSON.parse(localStorage.getItem('driver_mock_shift_publish_status') || '[]');
+    const match = allStatuses.find(s => s.year === year && s.month === month);
+    return match ? match.status : 'draft';
+  },
+
+  // センター・局リストの取得
+  async getCenters() {
+    if (currentMode === 'live') {
+      try {
+        const { data, error } = await supabaseClient
+          .from('centers')
+          .select('name')
+          .order('name');
+        
+        if (error) {
+          if (error.code === '42P01' || error.code === 'PGRST205') {
+            return this.getLocalCenters();
+          }
+          throw error;
+        }
+        return (data || []).map(c => c.name);
+      } catch (err) {
+        console.warn("Failed to fetch centers from Supabase, falling back to LocalStorage:", err);
+        return this.getLocalCenters();
+      }
+    } else {
+      return this.getLocalCenters();
+    }
+  },
+
+  getLocalCenters() {
+    const centers = localStorage.getItem('driver_centers');
+    if (!centers) {
+      const defaultCenters = ["休"];
+      localStorage.setItem('driver_centers', JSON.stringify(defaultCenters));
+      return defaultCenters;
+    }
+    return JSON.parse(centers);
+  },
+
+  // センターの追加
+  async addCenter(name) {
+    if (!name || !name.trim()) throw new Error("センター・局名を入力してください。");
+    const cleanName = name.trim();
+
+    if (currentMode === 'live') {
+      try {
+        const { error } = await supabaseClient
+          .from('centers')
+          .insert({ name: cleanName });
+        
+        if (error) {
+          if (error.code === '42P01' || error.code === 'PGRST205') {
+            this.addLocalCenter(cleanName);
+            return true;
+          }
+          throw error;
+        }
+        return true;
+      } catch (err) {
+        console.warn("Failed to add center to Supabase, falling back to LocalStorage:", err);
+        this.addLocalCenter(cleanName);
+        return true;
+      }
+    } else {
+      this.addLocalCenter(cleanName);
+      return true;
+    }
+  },
+
+  addLocalCenter(name) {
+    const centers = this.getLocalCenters();
+    if (!centers.includes(name)) {
+      centers.push(name);
+      localStorage.setItem('driver_centers', JSON.stringify(centers));
+    }
+  },
+
+  // センターの削除
+  async deleteCenter(name) {
+    if (currentMode === 'live') {
+      try {
+        const { error } = await supabaseClient
+          .from('centers')
+          .delete()
+          .eq('name', name);
+        
+        if (error) {
+          if (error.code === '42P01' || error.code === 'PGRST205') {
+            this.deleteLocalCenter(name);
+            return true;
+          }
+          throw error;
+        }
+        return true;
+      } catch (err) {
+        console.warn("Failed to delete center from Supabase, falling back to LocalStorage:", err);
+        this.deleteLocalCenter(name);
+        return true;
+      }
+    } else {
+      this.deleteLocalCenter(name);
+      return true;
+    }
+  },
+
+  deleteLocalCenter(name) {
+    let centers = this.getLocalCenters();
+    centers = centers.filter(c => c !== name);
+    localStorage.setItem('driver_centers', JSON.stringify(centers));
+  },
+
+  // シフト区分の取得
+  async getShiftTypes() {
+    if (currentMode === 'live') {
+      try {
+        const { data, error } = await supabaseClient
+          .from('shift_types')
+          .select('*')
+          .order('id');
+        
+        if (error) {
+          if (error.code === '42P01' || error.code === 'PGRST205') {
+            return this.getLocalShiftTypes();
+          }
+          throw error;
+        }
+        return data || [];
+      } catch (err) {
+        console.warn("Failed to fetch shift types from Supabase, falling back to LocalStorage:", err);
+        return this.getLocalShiftTypes();
+      }
+    } else {
+      return this.getLocalShiftTypes();
+    }
+  },
+
+  getLocalShiftTypes() {
+    const stored = localStorage.getItem('driver_shift_types');
+    if (!stored) {
+      const defaults = [
+        { id: 'work', name: '出勤', is_work: true },
+        { id: 'off', name: '休', is_work: false }
+      ];
+      localStorage.setItem('driver_shift_types', JSON.stringify(defaults));
+      return defaults;
+    }
+    return JSON.parse(stored);
+  },
+
+  // シフト区分の保存
+  async saveShiftTypes(types) {
+    if (currentMode === 'live') {
+      try {
+        // 全件削除してインサート（UPSERTの代用）
+        const { error: deleteError } = await supabaseClient
+          .from('shift_types')
+          .delete()
+          .neq('id', 'dummy_nonexistent');
+        
+        if (deleteError) {
+          if (deleteError.code === '42P01' || deleteError.code === 'PGRST205') {
+            this.saveLocalShiftTypes(types);
+            return true;
+          }
+          throw deleteError;
+        }
+
+        if (types.length > 0) {
+          const { error: insertError } = await supabaseClient
+            .from('shift_types')
+            .insert(types);
+          if (insertError) throw insertError;
+        }
+        
+        this.saveLocalShiftTypes(types);
+        return true;
+      } catch (err) {
+        console.warn("Failed to save shift types to Supabase, falling back to LocalStorage:", err);
+        this.saveLocalShiftTypes(types);
+        return true;
+      }
+    } else {
+      this.saveLocalShiftTypes(types);
+      return true;
+    }
+  },
+
+  saveLocalShiftTypes(types) {
+    localStorage.setItem('driver_shift_types', JSON.stringify(types));
   }
 };
